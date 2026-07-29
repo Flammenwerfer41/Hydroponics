@@ -60,6 +60,7 @@ constexpr uint8_t MAX_CONSECUTIVE_SENSOR_FAILURES = 5;
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000UL;
 constexpr uint32_t NTP_RETRY_INTERVAL_MS = 300000UL;
 constexpr uint32_t MDNS_RETRY_INTERVAL_MS = 30000UL;
+constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = 8000UL;
 constexpr uint8_t THINGSPEAK_QUEUE_LENGTH = 4;
 constexpr uint32_t THINGSPEAK_TASK_STACK = 6144;
 constexpr uint8_t SWITCHBOT_QUEUE_LENGTH = 1;
@@ -186,6 +187,8 @@ bool filesystemReady = false;
 bool historyCacheReady = false;
 bool timeReady = false;
 bool otaReady = false;
+volatile bool otaInProgress = false;
+wifi_ps_type_t otaPreviousSleepMode = WIFI_PS_MIN_MODEM;
 bool mdnsReady = false;
 bool previousWiFiConnected = false;
 
@@ -494,13 +497,26 @@ void setupOTA() {
   if (otaReady) return;
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
-  ArduinoOTA.onStart([]() { Serial.println("OTA start"); });
-  ArduinoOTA.onEnd([]() { Serial.println("\nOTA completed."); });
+  ArduinoOTA.setTimeout(OTA_RECEIVE_TIMEOUT_MS);
+  ArduinoOTA.onStart([]() {
+    otaInProgress = true;
+    otaPreviousSleepMode = WiFi.getSleep();
+    WiFi.setSleep(WIFI_PS_NONE);
+    Serial.println("OTA start; cloud tasks paused and Wi-Fi sleep disabled.");
+  });
+  ArduinoOTA.onEnd([]() {
+    otaInProgress = false;
+    Serial.println("\nOTA completed.");
+  });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     unsigned int percent = total > 0 ? static_cast<unsigned int>((uint64_t)progress * 100ULL / total) : 0;
     Serial.printf("OTA progress: %u%%\r", percent);
   });
-  ArduinoOTA.onError([](ota_error_t error) { Serial.printf("OTA error[%u]\n", error); });
+  ArduinoOTA.onError([](ota_error_t error) {
+    otaInProgress = false;
+    WiFi.setSleep(otaPreviousSleepMode);
+    Serial.printf("OTA error[%u]; cloud tasks resumed.\n", error);
+  });
   ArduinoOTA.begin();
   otaReady = true;
   Serial.printf("OTA ready: %s.local\n", OTA_HOSTNAME);
@@ -1105,6 +1121,7 @@ void thingSpeakTask(void* parameter) {
   ThingSpeakJob job{};
   for (;;) {
     if (xQueueReceive(thingSpeakQueue, &job, portMAX_DELAY) != pdTRUE) continue;
+    while (otaInProgress) vTaskDelay(pdMS_TO_TICKS(100));
     int code = uploadToThingSpeak(job);
     bool cloudOk = code == 200;
 
@@ -1318,6 +1335,7 @@ void switchBotTask(void* parameter) {
   SwitchBotJob job{};
   for (;;) {
     if (xQueueReceive(switchBotQueue, &job, portMAX_DELAY) == pdTRUE) {
+      while (otaInProgress) vTaskDelay(pdMS_TO_TICKS(100));
       querySwitchBot(job.sampleTimestamp);
     }
   }
