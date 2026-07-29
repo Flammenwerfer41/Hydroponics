@@ -170,6 +170,59 @@ function humidityDescription(value) {
   return "안정적인 범위";
 }
 
+function discomfortDescription(value) {
+  if (!Number.isFinite(value)) return "계산 대기 중";
+  if (value < 68) return "대체로 쾌적";
+  if (value < 75) return "보통";
+  if (value < 80) return "약간 불쾌";
+  return "불쾌감 높음";
+}
+
+function vpdDescription(value) {
+  if (!Number.isFinite(value)) return "계산 대기 중";
+  if (value < 0.4) return "증산이 낮은 범위";
+  if (value > 1.6) return "증산이 높은 범위";
+  return "균형적인 참고 범위";
+}
+
+function renderDerivedMetrics(temperature, humidity) {
+  if (
+    !Number.isFinite(temperature) ||
+    !Number.isFinite(humidity) ||
+    humidity <= 0 ||
+    humidity > 100
+  ) {
+    element("discomfortIndex").textContent = "--";
+    element("vpdValue").textContent = "--";
+    element("dewPoint").textContent = "--";
+    element("discomfortNote").textContent = "계산 대기 중";
+    element("vpdNote").textContent = "식물 증산 참고값";
+    element("dewPointNote").textContent = "결로 참고값";
+    return;
+  }
+
+  const discomfort =
+    0.81 * temperature +
+    0.01 * humidity * (0.99 * temperature - 14.3) +
+    46.3;
+  const saturationPressure =
+    0.6108 * Math.exp((17.27 * temperature) / (temperature + 237.3));
+  const vpd = saturationPressure * (1 - humidity / 100);
+  const gamma =
+    Math.log(humidity / 100) +
+    (17.62 * temperature) / (243.12 + temperature);
+  const dewPoint = (243.12 * gamma) / (17.62 - gamma);
+  const condensationGap = temperature - dewPoint;
+
+  element("discomfortIndex").textContent = fixed(discomfort, 0);
+  element("discomfortNote").textContent = discomfortDescription(discomfort);
+  element("vpdValue").textContent = fixed(vpd, 2);
+  element("vpdNote").textContent = vpdDescription(vpd);
+  element("dewPoint").textContent = fixed(dewPoint, 1);
+  element("dewPointNote").textContent =
+    condensationGap <= 2 ? "결로에 가까운 상태" : `현재 온도보다 ${fixed(condensationGap, 1)}°C 낮음`;
+}
+
 function wifiDescription(rssi) {
   if (!Number.isFinite(rssi)) return "확인 불가";
   if (rssi >= -50) return "매우 좋음";
@@ -244,6 +297,7 @@ function renderCurrent(feed) {
   element("pressure").textContent = fixed(pressure, 1);
   element("temperatureNote").textContent = temperatureDescription(temperature);
   element("humidityNote").textContent = humidityDescription(humidity);
+  renderDerivedMetrics(temperature, humidity);
   element("wifiRssi").textContent = Number.isFinite(rssi) ? `${Math.round(rssi)} dBm` : "-- dBm";
   element("wifiQuality").textContent = wifiDescription(rssi);
   element("entryId").textContent = feed.entry_id ? `#${feed.entry_id}` : "#--";

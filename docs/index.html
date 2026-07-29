@@ -63,6 +63,33 @@
         </div>
       </section>
 
+      <section class="insight-panel" aria-labelledby="insightTitle">
+        <div class="insight-heading">
+          <div>
+            <p class="section-kicker">실내 환경 해석</p>
+            <h2 id="insightTitle">온도와 습도로 계산한 참고값</h2>
+          </div>
+          <span>현재 측정값 기준</span>
+        </div>
+        <div class="insight-grid">
+          <div class="insight-item">
+            <span>불쾌지수</span>
+            <strong id="discomfortIndex">--</strong>
+            <small id="discomfortNote">계산 대기 중</small>
+          </div>
+          <div class="insight-item">
+            <span>VPD</span>
+            <strong><span id="vpdValue">--</span> <small>kPa</small></strong>
+            <small id="vpdNote">식물 증산 참고값</small>
+          </div>
+          <div class="insight-item">
+            <span>이슬점</span>
+            <strong><span id="dewPoint">--</span> <small>°C</small></strong>
+            <small id="dewPointNote">결로 참고값</small>
+          </div>
+        </div>
+      </section>
+
       <section class="light-panel" aria-labelledby="lightTitle">
         <div class="light-state-block">
           <div class="light-icon" id="lightIcon" aria-hidden="true">
