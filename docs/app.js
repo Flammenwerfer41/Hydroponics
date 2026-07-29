@@ -4,6 +4,7 @@ const CHANNEL_ID = 3436358;
 const API_BASE = `https://api.thingspeak.com/channels/${CHANNEL_ID}`;
 const CURRENT_REFRESH_MS = 15_000;
 const HISTORY_REFRESH_MS = 120_000;
+const WEATHER_REFRESH_MS = 15 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const JST_TIME_ZONE = "Asia/Tokyo";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -78,11 +79,14 @@ const state = {
   currentController: null,
   currentTimer: 0,
   historyTimer: 0,
+  weatherTimer: 0,
   resizeFrame: 0,
   rangeStart: 0,
   rangeEnd: 1,
   previousStart: 0,
   todayStart: 0,
+  weatherController: null,
+  weatherLocation: null,
   charts: {}
 };
 
@@ -259,6 +263,99 @@ async function fetchJson(url, controllerRef) {
   }
 }
 
+function weatherCodeInfo(code) {
+  if (code === 0) return { icon: "☀️", label: "맑음" };
+  if (code === 1) return { icon: "🌤️", label: "대체로 맑음" };
+  if (code === 2) return { icon: "⛅", label: "구름 조금" };
+  if (code === 3) return { icon: "☁️", label: "흐림" };
+  if (code === 45 || code === 48) return { icon: "🌫️", label: "안개" };
+  if (code >= 51 && code <= 57) return { icon: "🌦️", label: "이슬비" };
+  if (code >= 61 && code <= 67) return { icon: "🌧️", label: "비" };
+  if (code >= 71 && code <= 77) return { icon: "🌨️", label: "눈" };
+  if (code >= 80 && code <= 82) return { icon: "🌦️", label: "소나기" };
+  if (code === 85 || code === 86) return { icon: "🌨️", label: "눈 소나기" };
+  if (code >= 95) return { icon: "⛈️", label: "뇌우" };
+  return { icon: "🌡️", label: "날씨 확인 불가" };
+}
+
+function renderWeather(data) {
+  const current = data?.current;
+  if (!current) throw new Error("Invalid weather response");
+  const temperature = finiteNumber(current.temperature_2m);
+  const humidity = finiteNumber(current.relative_humidity_2m);
+  const feelsLike = finiteNumber(current.apparent_temperature);
+  const precipitation = finiteNumber(current.precipitation);
+  const wind = finiteNumber(current.wind_speed_10m);
+  const weather = weatherCodeInfo(finiteNumber(current.weather_code));
+  const modelTime = typeof current.time === "string"
+    ? current.time.split("T")[1]?.slice(0, 5)
+    : null;
+
+  element("weatherIcon").textContent = weather.icon;
+  element("weatherDescription").textContent = weather.label;
+  element("weatherUpdated").textContent =
+    `JMA 모델 ${modelTime || "--:--"} 기준 · 1시간 자료`;
+  element("outdoorTemperature").textContent = fixed(temperature, 1);
+  element("outdoorHumidity").textContent =
+    Number.isFinite(humidity) ? Math.round(humidity) : "--";
+  element("outdoorFeelsLike").textContent = fixed(feelsLike, 1);
+  element("outdoorPrecipitation").textContent = fixed(precipitation, 1);
+  element("outdoorWind").textContent = fixed(wind, 1);
+}
+
+function renderWeatherUnavailable() {
+  element("weatherIcon").textContent = "·";
+  element("weatherDescription").textContent = "날씨 확인 불가";
+  element("weatherUpdated").textContent = "잠시 후 자동으로 다시 시도합니다.";
+}
+
+async function refreshWeather() {
+  if (document.hidden || !state.weatherLocation) return;
+  const { latitude, longitude } = state.weatherLocation;
+  const parameters = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    current: [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "apparent_temperature",
+      "precipitation",
+      "weather_code",
+      "wind_speed_10m"
+    ].join(","),
+    wind_speed_unit: "ms",
+    timezone: JST_TIME_ZONE
+  });
+
+  try {
+    const data = await fetchJson(
+      `https://api.open-meteo.com/v1/jma?${parameters}`,
+      "weatherController"
+    );
+    renderWeather(data);
+  } catch (error) {
+    if (error.name !== "AbortError") renderWeatherUnavailable();
+  }
+}
+
+function setWeatherLocation(channel) {
+  const latitude = finiteNumber(channel?.latitude);
+  const longitude = finiteNumber(channel?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    renderWeatherUnavailable();
+    return;
+  }
+
+  const changed =
+    !state.weatherLocation ||
+    state.weatherLocation.latitude !== latitude ||
+    state.weatherLocation.longitude !== longitude;
+  state.weatherLocation = { latitude, longitude };
+  if (changed || (!state.weatherTimer && !state.weatherController)) {
+    refreshWeather().finally(() => scheduleWeather());
+  }
+}
+
 function renderConnection(createdAt, failed = false) {
   const connection = element("connection");
   const text = element("connectionText");
@@ -376,6 +473,7 @@ async function loadHistory(range, announceLoading = true) {
   try {
     const data = await fetchJson(`${API_BASE}/feeds.json?${config.query}`, "historyController");
     if (sequence !== state.historySequence) return;
+    setWeatherLocation(data.channel);
     const domain = historyDomain(range);
     const earliest = range === "day" ? domain.previousStart : domain.start;
     const points = parseHistory(Array.isArray(data.feeds) ? data.feeds : [])
@@ -905,6 +1003,13 @@ function scheduleHistory(delay = HISTORY_REFRESH_MS) {
   if (!document.hidden) state.historyTimer = setTimeout(runHistoryLoop, delay);
 }
 
+function scheduleWeather(delay = WEATHER_REFRESH_MS) {
+  clearTimeout(state.weatherTimer);
+  if (!document.hidden && state.weatherLocation) {
+    state.weatherTimer = setTimeout(runWeatherLoop, delay);
+  }
+}
+
 async function runCurrentLoop() {
   await refreshCurrent();
   scheduleCurrent();
@@ -915,18 +1020,29 @@ async function runHistoryLoop() {
   scheduleHistory();
 }
 
+async function runWeatherLoop() {
+  await refreshWeather();
+  scheduleWeather();
+}
+
 function stopPolling() {
   clearTimeout(state.currentTimer);
   clearTimeout(state.historyTimer);
+  clearTimeout(state.weatherTimer);
   state.currentTimer = 0;
   state.historyTimer = 0;
+  state.weatherTimer = 0;
   if (state.currentController) state.currentController.abort();
   if (state.historyController) state.historyController.abort();
+  if (state.weatherController) state.weatherController.abort();
 }
 
 function startPolling() {
   refreshCurrent().finally(() => scheduleCurrent());
   loadHistory(state.range).finally(() => scheduleHistory());
+  if (state.weatherLocation) {
+    refreshWeather().finally(() => scheduleWeather());
+  }
 }
 
 document.querySelectorAll(".range-button").forEach((button) => {

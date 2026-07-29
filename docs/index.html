@@ -114,6 +114,42 @@
         </div>
       </section>
 
+      <section class="weather-panel" aria-labelledby="weatherTitle">
+        <div class="weather-summary">
+          <div class="weather-icon" id="weatherIcon" aria-hidden="true">·</div>
+          <div>
+            <p class="section-kicker">주변 날씨</p>
+            <h2 id="weatherTitle"><span id="weatherDescription">날씨 확인 중</span></h2>
+            <p class="weather-caption" id="weatherUpdated">JMA 모델 데이터 불러오는 중…</p>
+          </div>
+        </div>
+        <div class="weather-temperature">
+          <span>외부 기온</span>
+          <strong><span id="outdoorTemperature">--</span><small>°C</small></strong>
+          <small>체감 <span id="outdoorFeelsLike">--</span>°C</small>
+        </div>
+        <div class="weather-details">
+          <div>
+            <span>습도</span>
+            <strong><span id="outdoorHumidity">--</span><small>%</small></strong>
+          </div>
+          <div>
+            <span>강수</span>
+            <strong><span id="outdoorPrecipitation">--</span><small>mm</small></strong>
+          </div>
+          <div>
+            <span>풍속</span>
+            <strong><span id="outdoorWind">--</span><small>m/s</small></strong>
+          </div>
+        </div>
+        <a
+          class="weather-source"
+          href="https://open-meteo.com/"
+          target="_blank"
+          rel="noreferrer"
+        >JMA 모델 기반 참고값 · Open-Meteo 제공</a>
+      </section>
+
       <section class="section history-section" aria-labelledby="historyTitle">
         <div class="section-heading history-heading">
           <div>
