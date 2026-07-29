@@ -94,7 +94,7 @@
             <h2 id="historyTitle">시간에 따른 변화</h2>
           </div>
           <div class="range-switcher" aria-label="그래프 기간">
-            <button type="button" class="range-button active" data-range="day">24시간</button>
+            <button type="button" class="range-button active" data-range="day">오늘 비교</button>
             <button type="button" class="range-button" data-range="week">7일</button>
             <button type="button" class="range-button" data-range="month">30일</button>
           </div>
@@ -105,6 +105,11 @@
           <span id="historyResolution"></span>
         </div>
 
+        <div class="comparison-legend" id="comparisonLegend">
+          <span><i class="legend-line today-line"></i>오늘</span>
+          <span><i class="legend-line previous-line"></i>전날</span>
+        </div>
+
         <div class="light-timeline-card">
           <div class="light-timeline-heading">
             <div>
@@ -113,13 +118,22 @@
             </div>
             <strong id="lightTimelineSummary">확인 중…</strong>
           </div>
-          <div
-            class="light-timeline"
-            id="lightTimeline"
-            role="img"
-            aria-label="선택한 기간의 조명 가동 구간"
-          >
-            <div class="light-timeline-segments" id="lightTimelineSegments"></div>
+          <div class="light-timeline-row" id="previousLightRow">
+            <span>전날</span>
+            <div class="light-timeline" role="img" aria-label="전날 조명 가동 구간">
+              <div class="light-timeline-segments" id="previousLightTimelineSegments"></div>
+            </div>
+          </div>
+          <div class="light-timeline-row">
+            <span id="currentLightRowLabel">오늘</span>
+            <div
+              class="light-timeline"
+              id="lightTimeline"
+              role="img"
+              aria-label="선택한 기간의 조명 가동 구간"
+            >
+              <div class="light-timeline-segments" id="lightTimelineSegments"></div>
+            </div>
           </div>
           <div class="light-timeline-axis" aria-hidden="true">
             <span id="lightTimelineStart">--</span>

@@ -6,12 +6,14 @@ const CURRENT_REFRESH_MS = 15_000;
 const HISTORY_REFRESH_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const JST_TIME_ZONE = "Asia/Tokyo";
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const RANGE_CONFIG = {
   day: {
-    query: "days=1",
+    query: "days=2",
     resolution: "2분 원본 데이터",
-    label: "최근 24시간",
+    label: "오늘과 전날",
     bucketSeconds: 120
   },
   week: {
@@ -77,6 +79,10 @@ const state = {
   currentTimer: 0,
   historyTimer: 0,
   resizeFrame: 0,
+  rangeStart: 0,
+  rangeEnd: 1,
+  previousStart: 0,
+  todayStart: 0,
   charts: {}
 };
 
@@ -107,6 +113,36 @@ function formatJst(date, options) {
     timeZone: JST_TIME_ZONE,
     ...options
   }).format(date);
+}
+
+function jstMidnight(timestamp = Date.now()) {
+  const shifted = new Date(timestamp + JST_OFFSET_MS);
+  return Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate()
+  ) - JST_OFFSET_MS;
+}
+
+function historyDomain(range) {
+  const now = Date.now();
+  if (range === "day") {
+    const todayStart = jstMidnight(now);
+    return {
+      start: todayStart,
+      end: todayStart + DAY_MS,
+      previousStart: todayStart - DAY_MS,
+      todayStart
+    };
+  }
+
+  const duration = range === "week" ? 7 * DAY_MS : 30 * DAY_MS;
+  return {
+    start: now - duration,
+    end: now,
+    previousStart: 0,
+    todayStart: 0
+  };
 }
 
 function relativeTime(date) {
@@ -286,10 +322,18 @@ async function loadHistory(range, announceLoading = true) {
   try {
     const data = await fetchJson(`${API_BASE}/feeds.json?${config.query}`, "historyController");
     if (sequence !== state.historySequence) return;
-    const points = parseHistory(Array.isArray(data.feeds) ? data.feeds : []);
+    const domain = historyDomain(range);
+    const earliest = range === "day" ? domain.previousStart : domain.start;
+    const points = parseHistory(Array.isArray(data.feeds) ? data.feeds : [])
+      .filter((point) => point.time >= earliest && point.time <= domain.end);
     state.range = range;
     state.history = points;
+    state.rangeStart = domain.start;
+    state.rangeEnd = domain.end;
+    state.previousStart = domain.previousStart;
+    state.todayStart = domain.todayStart;
     setRangeButtons(range, false);
+    element("comparisonLegend").hidden = range !== "day";
     element("historyStatus").textContent = `${config.label} · ${points.length.toLocaleString("ko-KR")}개 데이터`;
     element("historyResolution").textContent = config.resolution;
     renderLightTimeline();
@@ -303,15 +347,15 @@ async function loadHistory(range, announceLoading = true) {
   }
 }
 
-function lightSegments() {
-  if (state.history.length < 2) return [];
+function lightSegments(points = state.history) {
+  if (points.length < 2) return [];
   const config = RANGE_CONFIG[state.range] || RANGE_CONFIG.day;
   const maximumGap = config.bucketSeconds * 3 * 1000;
   const segments = [];
 
-  for (let index = 0; index < state.history.length - 1; index += 1) {
-    const current = state.history[index];
-    const next = state.history[index + 1];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
     const duration = next.time - current.time;
     if (
       !Number.isFinite(current.lightStatus) ||
@@ -348,36 +392,21 @@ function lightSegments() {
 }
 
 function timelineLabel(timestamp) {
-  const options = state.range === "day"
-    ? { hour: "2-digit", minute: "2-digit", hour12: false }
-    : { month: "numeric", day: "numeric" };
-  return formatJst(new Date(timestamp), options);
+  return formatJst(new Date(timestamp), { month: "numeric", day: "numeric" });
 }
 
-function renderLightTimeline() {
-  const container = element("lightTimelineSegments");
-  const summary = element("lightTimelineSummary");
-  const startLabel = element("lightTimelineStart");
-  const endLabel = element("lightTimelineEnd");
+function renderTimelineSegments(container, segments, start, end) {
   container.replaceChildren();
-
-  if (state.history.length < 2) {
-    summary.textContent = "표시할 데이터 없음";
-    startLabel.textContent = "--";
-    endLabel.textContent = "--";
-    return;
-  }
-
-  const start = state.history[0].time;
-  const end = state.history[state.history.length - 1].time;
   const span = Math.max(1, end - start);
-  const segments = lightSegments();
   let runtime = 0;
 
   segments.forEach((segment) => {
+    const visibleStart = Math.max(start, segment.start);
+    const visibleEnd = Math.min(end, segment.end);
+    if (visibleEnd <= visibleStart) return;
     const bar = document.createElement("span");
-    const left = ((segment.start - start) / span) * 100;
-    const width = ((segment.end - segment.start) / span) * 100;
+    const left = ((visibleStart - start) / span) * 100;
+    const width = ((visibleEnd - visibleStart) / span) * 100;
     bar.className = "light-timeline-segment";
     bar.style.left = `${left}%`;
     bar.style.width = `${Math.max(0.12, width)}%`;
@@ -386,11 +415,73 @@ function renderLightTimeline() {
     runtime += segment.weightedDuration;
   });
 
+  return runtime;
+}
+
+function renderLightTimeline() {
+  const container = element("lightTimelineSegments");
+  const previousContainer = element("previousLightTimelineSegments");
+  const previousRow = element("previousLightRow");
+  const currentRowLabel = element("currentLightRowLabel");
+  const summary = element("lightTimelineSummary");
+  const startLabel = element("lightTimelineStart");
+  const endLabel = element("lightTimelineEnd");
+  container.replaceChildren();
+  previousContainer.replaceChildren();
+
+  if (state.history.length < 2) {
+    summary.textContent = "표시할 데이터 없음";
+    startLabel.textContent = "--";
+    endLabel.textContent = "--";
+    return;
+  }
+
+  if (state.range === "day") {
+    const previousPoints = state.history.filter(
+      (point) => point.time >= state.previousStart && point.time < state.todayStart
+    );
+    const todayPoints = state.history.filter(
+      (point) => point.time >= state.todayStart && point.time < state.rangeEnd
+    );
+    const previousSegments = lightSegments(previousPoints);
+    const todaySegments = lightSegments(todayPoints);
+    const previousRuntime = renderTimelineSegments(
+      previousContainer,
+      previousSegments,
+      state.previousStart,
+      state.todayStart
+    );
+    const todayRuntime = renderTimelineSegments(
+      container,
+      todaySegments,
+      state.todayStart,
+      state.rangeEnd
+    );
+
+    previousRow.hidden = false;
+    currentRowLabel.textContent = "오늘";
+    summary.textContent = previousSegments.length || todaySegments.length
+      ? `오늘 ${formatRuntime(todayRuntime / 60_000)} · 전날 ${formatRuntime(previousRuntime / 60_000)}`
+      : "ON 구간 기록 없음";
+    startLabel.textContent = "00:00";
+    endLabel.textContent = "24:00";
+    return;
+  }
+
+  previousRow.hidden = true;
+  currentRowLabel.textContent = "조명";
+  const segments = lightSegments();
+  const runtime = renderTimelineSegments(
+    container,
+    segments,
+    state.rangeStart,
+    state.rangeEnd
+  );
   summary.textContent = segments.length
     ? `표시 구간 약 ${formatRuntime(runtime / 60_000)}`
     : "ON 구간 기록 없음";
-  startLabel.textContent = timelineLabel(start);
-  endLabel.textContent = timelineLabel(end);
+  startLabel.textContent = timelineLabel(state.rangeStart);
+  endLabel.textContent = timelineLabel(state.rangeEnd);
 }
 
 function chartValues(field) {
@@ -398,7 +489,9 @@ function chartValues(field) {
 }
 
 function chartStats(field) {
-  const values = chartValues(field).map((point) => point[field]);
+  const values = chartValues(field)
+    .filter((point) => state.range !== "day" || point.time >= state.todayStart)
+    .map((point) => point[field]);
   if (!values.length) return null;
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
@@ -455,12 +548,40 @@ function niceBounds(values, config) {
   return [low, high];
 }
 
-function xAxisLabel(timestamp) {
-  const date = new Date(timestamp);
-  if (state.range === "day") {
-    return formatJst(date, { hour: "2-digit", minute: "2-digit", hour12: false });
+function chartSeries(field) {
+  const points = chartValues(field);
+  if (state.range !== "day") {
+    return [{
+      key: "current",
+      label: "",
+      points: points.map((point) => ({ ...point, plotTime: point.time }))
+    }];
   }
-  return formatJst(date, { month: "numeric", day: "numeric" });
+
+  return [
+    {
+      key: "previous",
+      label: "전날",
+      points: points
+        .filter((point) => point.time >= state.previousStart && point.time < state.todayStart)
+        .map((point) => ({ ...point, plotTime: point.time + DAY_MS }))
+    },
+    {
+      key: "today",
+      label: "오늘",
+      points: points
+        .filter((point) => point.time >= state.todayStart && point.time < state.rangeEnd)
+        .map((point) => ({ ...point, plotTime: point.time }))
+    }
+  ];
+}
+
+function xAxisLabel(timestamp) {
+  if (state.range === "day") {
+    const hours = Math.round((timestamp - state.rangeStart) / (60 * 60 * 1000));
+    return `${hours}:00`;
+  }
+  return formatJst(new Date(timestamp), { month: "numeric", day: "numeric" });
 }
 
 function tooltipTime(timestamp) {
@@ -524,7 +645,8 @@ class LineChart {
     };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const points = chartValues(this.config.field);
+    const series = chartSeries(this.config.field);
+    const points = series.flatMap((item) => item.points);
     const values = points.map((point) => point[this.config.field]);
 
     if (!points.length || plotWidth <= 0 || plotHeight <= 0) {
@@ -537,8 +659,8 @@ class LineChart {
       return;
     }
 
-    const firstTime = points[0].time;
-    const lastTime = points[points.length - 1].time;
+    const firstTime = state.rangeStart || Math.min(...points.map((point) => point.plotTime));
+    const lastTime = state.rangeEnd || Math.max(...points.map((point) => point.plotTime));
     const timeSpan = Math.max(1, lastTime - firstTime);
     const [minimum, maximum] = niceBounds(values, this.config);
     const valueSpan = Math.max(0.0001, maximum - minimum);
@@ -550,7 +672,12 @@ class LineChart {
     const xFor = (timestamp) => margin.left + ((timestamp - firstTime) / timeSpan) * plotWidth;
     const yFor = (value) => margin.top + ((maximum - value) / valueSpan) * plotHeight;
 
-    lightSegments().forEach((segment) => {
+    const shadedLightPoints = state.range === "day"
+      ? state.history.filter(
+        (point) => point.time >= state.todayStart && point.time < state.rangeEnd
+      )
+      : state.history;
+    lightSegments(shadedLightPoints).forEach((segment) => {
       const start = Math.max(firstTime, segment.start);
       const end = Math.min(lastTime, segment.end);
       if (end <= start) return;
@@ -590,59 +717,80 @@ class LineChart {
     gradient.addColorStop(0, colorWithAlpha(lineColor, 0.20));
     gradient.addColorStop(1, colorWithAlpha(lineColor, 0.015));
 
-    const coordinates = points.map((point) => ({
-      x: xFor(point.time),
-      y: yFor(point[this.config.field]),
-      point
-    }));
     const rangeConfig = RANGE_CONFIG[state.range] || RANGE_CONFIG.day;
-    const coordinateGroups = splitCoordinateGroups(
-      coordinates,
-      rangeConfig.bucketSeconds * 3 * 1000
-    );
-
-    coordinateGroups.forEach((group) => {
-      if (group.length < 2) return;
-      context.beginPath();
-      group.forEach((coordinate, index) => {
-        if (index === 0) context.moveTo(coordinate.x, coordinate.y);
-        else context.lineTo(coordinate.x, coordinate.y);
-      });
-      context.lineTo(group[group.length - 1].x, margin.top + plotHeight);
-      context.lineTo(group[0].x, margin.top + plotHeight);
-      context.closePath();
-      context.fillStyle = gradient;
-      context.fill();
-    });
-
-    context.strokeStyle = lineColor;
-    context.fillStyle = lineColor;
-    context.lineWidth = 2;
     context.lineJoin = "round";
     context.lineCap = "round";
-    coordinateGroups.forEach((group) => {
-      if (group.length === 1) {
-        context.beginPath();
-        context.arc(group[0].x, group[0].y, 2.1, 0, Math.PI * 2);
-        context.fill();
-        return;
-      }
-      context.beginPath();
-      group.forEach((coordinate, index) => {
-        if (index === 0) context.moveTo(coordinate.x, coordinate.y);
-        else context.lineTo(coordinate.x, coordinate.y);
-      });
-      context.stroke();
+    const allCoordinates = [];
+    const renderedSeries = series.map((item) => {
+      const coordinates = item.points.map((point) => ({
+        x: xFor(point.plotTime),
+        y: yFor(point[this.config.field]),
+        point,
+        seriesKey: item.key,
+        seriesLabel: item.label
+      }));
+      return {
+        ...item,
+        coordinates,
+        groups: splitCoordinateGroups(
+          coordinates,
+          rangeConfig.bucketSeconds * 3 * 1000
+        )
+      };
     });
 
-    const latest = coordinates[coordinates.length - 1];
-    context.beginPath();
-    context.arc(latest.x, latest.y, 3.2, 0, Math.PI * 2);
-    context.fillStyle = lineColor;
-    context.fill();
+    renderedSeries.forEach((item) => {
+      if (item.key !== "previous") {
+        item.groups.forEach((group) => {
+          if (group.length < 2) return;
+          context.beginPath();
+          group.forEach((coordinate, index) => {
+            if (index === 0) context.moveTo(coordinate.x, coordinate.y);
+            else context.lineTo(coordinate.x, coordinate.y);
+          });
+          context.lineTo(group[group.length - 1].x, margin.top + plotHeight);
+          context.lineTo(group[0].x, margin.top + plotHeight);
+          context.closePath();
+          context.fillStyle = gradient;
+          context.fill();
+        });
+      }
+
+      context.setLineDash(item.key === "previous" ? [5, 5] : []);
+      context.strokeStyle = item.key === "previous"
+        ? colorWithAlpha(lineColor, 0.48)
+        : lineColor;
+      context.fillStyle = context.strokeStyle;
+      context.lineWidth = item.key === "previous" ? 1.6 : 2;
+      item.groups.forEach((group) => {
+        if (group.length === 1) {
+          context.beginPath();
+          context.arc(group[0].x, group[0].y, 2.1, 0, Math.PI * 2);
+          context.fill();
+          return;
+        }
+        context.beginPath();
+        group.forEach((coordinate, index) => {
+          if (index === 0) context.moveTo(coordinate.x, coordinate.y);
+          else context.lineTo(coordinate.x, coordinate.y);
+        });
+        context.stroke();
+      });
+      allCoordinates.push(...item.coordinates);
+    });
+    context.setLineDash([]);
+
+    const currentSeries = renderedSeries.find((item) => item.key !== "previous" && item.coordinates.length);
+    if (currentSeries) {
+      const latest = currentSeries.coordinates[currentSeries.coordinates.length - 1];
+      context.beginPath();
+      context.arc(latest.x, latest.y, 3.2, 0, Math.PI * 2);
+      context.fillStyle = lineColor;
+      context.fill();
+    }
 
     this.plot = { margin, plotWidth, plotHeight, width, height };
-    this.points = coordinates;
+    this.points = allCoordinates;
   }
 
   onPointerMove(event) {
@@ -656,9 +804,11 @@ class LineChart {
     }
 
     let nearest = this.points[0];
-    let distance = Math.abs(pointerX - nearest.x);
+    let distance = Math.abs(pointerX - nearest.x) + Math.abs(pointerY - nearest.y) * 0.2;
     for (let index = 1; index < this.points.length; index += 1) {
-      const candidateDistance = Math.abs(pointerX - this.points[index].x);
+      const candidateDistance =
+        Math.abs(pointerX - this.points[index].x) +
+        Math.abs(pointerY - this.points[index].y) * 0.2;
       if (candidateDistance < distance) {
         distance = candidateDistance;
         nearest = this.points[index];
@@ -666,9 +816,10 @@ class LineChart {
     }
 
     const value = nearest.point[this.config.field];
+    const seriesText = nearest.seriesLabel ? `${nearest.seriesLabel} · ` : "";
     this.tooltip.innerHTML =
       `<strong>${fixed(value, this.config.decimals)} ${this.config.unit}</strong>` +
-      `<span>${tooltipTime(nearest.point.time)}</span>`;
+      `<span>${seriesText}${tooltipTime(nearest.point.time)}</span>`;
     this.tooltip.hidden = false;
 
     const tooltipWidth = this.tooltip.offsetWidth;
