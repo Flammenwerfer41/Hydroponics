@@ -21,6 +21,24 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 
 `include/secrets.h`는 `.gitignore`에 등록되어 있으므로 Git에 포함하면 안 됩니다.
 
+## OTA 업데이트
+
+ESP32와 PC가 같은 네트워크에 연결된 상태에서 PlatformIO Core CLI
+터미널을 열고 다음 명령을 실행합니다.
+
+```powershell
+$env:ESP32_OTA_HOST = "장치의 OTA 호스트명.local"
+$env:ESP32_OTA_PASSWORD = "장치의 OTA 비밀번호"
+pio run -e esp32dev_ota
+pio run -e esp32dev_ota -t upload
+```
+
+OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. 환경변수는
+현재 터미널 세션에만 유지되며 Git에 저장되지 않습니다.
+
+일반 펌웨어 OTA는 LittleFS 파티션을 덮어쓰지 않습니다. 기존 링버퍼를
+보존하기 위해 **Upload Filesystem Image** 작업은 실행하지 않습니다.
+
 ## 호환성 주의사항
 
 - `/sensor_ring.bin`의 `SensorRecord` 크기와 필드 순서를 변경하지 않습니다.
