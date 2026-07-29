@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1714">
-  <meta name="description" content="ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드">
+  <meta name="description" content="ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드" data-i18n-content="meta.description">
   <title>Hydroponics Monitor</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -15,11 +15,17 @@
       <div>
         <div class="eyebrow">ESP32 · THINGSPEAK</div>
         <h1>Hydroponics Monitor</h1>
-        <p class="hero-copy">수경재배 환경과 조명 상태를 원격으로 확인합니다.</p>
+        <p class="hero-copy" data-i18n="hero.copy">수경재배 환경과 조명 상태를 원격으로 확인합니다.</p>
       </div>
-      <div class="connection" id="connection" data-state="loading" role="status" aria-live="polite">
-        <span class="connection-dot"></span>
-        <span id="connectionText">연결 확인 중</span>
+      <div class="hero-actions">
+        <div class="language-switcher" role="group" aria-label="표시 언어" data-i18n-aria-label="language.selector">
+          <button type="button" class="language-button active" data-language="ko" aria-pressed="true">한국어</button>
+          <button type="button" class="language-button" data-language="ja" aria-pressed="false">日本語</button>
+        </div>
+        <div class="connection" id="connection" data-state="loading" role="status" aria-live="polite">
+          <span class="connection-dot"></span>
+          <span id="connectionText" data-i18n="connection.loading">연결 확인 중</span>
+        </div>
       </div>
     </header>
 
@@ -27,38 +33,38 @@
       <section class="section current-section" aria-labelledby="currentTitle">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">현재 환경</p>
-            <h2 id="currentTitle">지금의 재배 공간</h2>
+            <p class="section-kicker" data-i18n="current.kicker">현재 환경</p>
+            <h2 id="currentTitle" data-i18n="current.title">지금의 재배 공간</h2>
           </div>
-          <div class="updated-at" id="updatedAt">최근 데이터 불러오는 중…</div>
+          <div class="updated-at" id="updatedAt" data-i18n="current.loading">최근 데이터 불러오는 중…</div>
         </div>
 
         <div class="metric-grid">
           <article class="metric-card temperature">
             <div class="metric-topline">
-              <span class="metric-label">온도</span>
+              <span class="metric-label" data-i18n="metric.temperature">온도</span>
               <span class="metric-symbol" aria-hidden="true">T</span>
             </div>
             <div class="metric-reading"><span id="temperature">--</span><small>°C</small></div>
-            <div class="metric-note" id="temperatureNote">측정 대기 중</div>
+            <div class="metric-note" id="temperatureNote" data-i18n="status.measurementWaiting">측정 대기 중</div>
           </article>
 
           <article class="metric-card humidity">
             <div class="metric-topline">
-              <span class="metric-label">습도</span>
+              <span class="metric-label" data-i18n="metric.humidity">습도</span>
               <span class="metric-symbol" aria-hidden="true">H</span>
             </div>
             <div class="metric-reading"><span id="humidity">--</span><small>%</small></div>
-            <div class="metric-note" id="humidityNote">측정 대기 중</div>
+            <div class="metric-note" id="humidityNote" data-i18n="status.measurementWaiting">측정 대기 중</div>
           </article>
 
           <article class="metric-card pressure">
             <div class="metric-topline">
-              <span class="metric-label">기압</span>
+              <span class="metric-label" data-i18n="metric.pressure">기압</span>
               <span class="metric-symbol" aria-hidden="true">P</span>
             </div>
             <div class="metric-reading"><span id="pressure">--</span><small>hPa</small></div>
-            <div class="metric-note">BME280 센서</div>
+            <div class="metric-note" data-i18n="metric.bme280">BME280 센서</div>
           </article>
         </div>
       </section>
@@ -66,26 +72,26 @@
       <section class="insight-panel" aria-labelledby="insightTitle">
         <div class="insight-heading">
           <div>
-            <p class="section-kicker">실내 환경 해석</p>
-            <h2 id="insightTitle">온도와 습도로 계산한 참고값</h2>
+            <p class="section-kicker" data-i18n="insight.kicker">실내 환경 해석</p>
+            <h2 id="insightTitle" data-i18n="insight.title">온도와 습도로 계산한 참고값</h2>
           </div>
-          <span>현재 측정값 기준</span>
+          <span data-i18n="insight.basis">현재 측정값 기준</span>
         </div>
         <div class="insight-grid">
           <div class="insight-item">
-            <span>불쾌지수</span>
+            <span data-i18n="insight.discomfort">불쾌지수</span>
             <strong id="discomfortIndex">--</strong>
-            <small id="discomfortNote">계산 대기 중</small>
+            <small id="discomfortNote" data-i18n="status.calculationWaiting">계산 대기 중</small>
           </div>
           <div class="insight-item">
             <span>VPD</span>
             <strong><span id="vpdValue">--</span> <small>kPa</small></strong>
-            <small id="vpdNote">식물 증산 참고값</small>
+            <small id="vpdNote" data-i18n="insight.vpdReference">식물 증산 참고값</small>
           </div>
           <div class="insight-item">
-            <span>이슬점</span>
+            <span data-i18n="insight.dewPoint">이슬점</span>
             <strong><span id="dewPoint">--</span> <small>°C</small></strong>
-            <small id="dewPointNote">결로 참고값</small>
+            <small id="dewPointNote" data-i18n="insight.dewReference">결로 참고값</small>
           </div>
         </div>
       </section>
@@ -97,18 +103,18 @@
             <span class="light-bulb"></span>
           </div>
           <div>
-            <p class="section-kicker">LED 조명</p>
-            <h2 id="lightTitle"><span id="lightState">상태 확인 중</span></h2>
+            <p class="section-kicker" data-i18n="light.kicker">LED 조명</p>
+            <h2 id="lightTitle"><span id="lightState" data-i18n="light.checking">상태 확인 중</span></h2>
             <p class="light-caption" id="lightCaption">SwitchBot Plug Mini</p>
           </div>
         </div>
         <div class="light-metrics">
           <div>
-            <span>현재 소비전력</span>
+            <span data-i18n="light.power">현재 소비전력</span>
             <strong><span id="lightPower">--</span> <small>W</small></strong>
           </div>
           <div>
-            <span>오늘 가동시간</span>
+            <span data-i18n="light.runtimeToday">오늘 가동시간</span>
             <strong id="lightRuntime">--</strong>
           </div>
         </div>
@@ -118,27 +124,27 @@
         <div class="weather-summary">
           <div class="weather-icon" id="weatherIcon" aria-hidden="true">·</div>
           <div>
-            <p class="section-kicker">주변 날씨</p>
-            <h2 id="weatherTitle"><span id="weatherDescription">날씨 확인 중</span></h2>
-            <p class="weather-caption" id="weatherUpdated">JMA 모델 데이터 불러오는 중…</p>
+            <p class="section-kicker" data-i18n="weather.kicker">주변 날씨</p>
+            <h2 id="weatherTitle"><span id="weatherDescription" data-i18n="weather.checking">날씨 확인 중</span></h2>
+            <p class="weather-caption" id="weatherUpdated" data-i18n="weather.loading">JMA 모델 데이터 불러오는 중…</p>
           </div>
         </div>
         <div class="weather-temperature">
-          <span>외부 기온</span>
+          <span data-i18n="weather.outdoorTemperature">외부 기온</span>
           <strong><span id="outdoorTemperature">--</span><small>°C</small></strong>
-          <small>체감 <span id="outdoorFeelsLike">--</span>°C</small>
+          <small><span data-i18n="weather.feelsLike">체감</span> <span id="outdoorFeelsLike">--</span>°C</small>
         </div>
         <div class="weather-details">
           <div>
-            <span>습도</span>
+            <span data-i18n="metric.humidity">습도</span>
             <strong><span id="outdoorHumidity">--</span><small>%</small></strong>
           </div>
           <div>
-            <span>강수</span>
+            <span data-i18n="weather.precipitation">강수</span>
             <strong><span id="outdoorPrecipitation">--</span><small>mm</small></strong>
           </div>
           <div>
-            <span>풍속</span>
+            <span data-i18n="weather.wind">풍속</span>
             <strong><span id="outdoorWind">--</span><small>m/s</small></strong>
           </div>
         </div>
@@ -147,53 +153,55 @@
           href="https://open-meteo.com/"
           target="_blank"
           rel="noreferrer"
+          data-i18n="weather.source"
         >JMA 모델 기반 참고값 · Open-Meteo 제공</a>
       </section>
 
       <section class="section history-section" aria-labelledby="historyTitle">
         <div class="section-heading history-heading">
           <div>
-            <p class="section-kicker">환경 기록</p>
-            <h2 id="historyTitle">시간에 따른 변화</h2>
+            <p class="section-kicker" data-i18n="history.kicker">환경 기록</p>
+            <h2 id="historyTitle" data-i18n="history.title">시간에 따른 변화</h2>
           </div>
-          <div class="range-switcher" aria-label="그래프 기간">
-            <button type="button" class="range-button active" data-range="day">오늘 비교</button>
-            <button type="button" class="range-button" data-range="week">7일</button>
-            <button type="button" class="range-button" data-range="month">30일</button>
+          <div class="range-switcher" aria-label="그래프 기간" data-i18n-aria-label="history.rangeSelector">
+            <button type="button" class="range-button active" data-range="day" data-i18n="history.rangeDay">오늘 비교</button>
+            <button type="button" class="range-button" data-range="week" data-i18n="history.rangeWeek">7일</button>
+            <button type="button" class="range-button" data-range="month" data-i18n="history.rangeMonth">30일</button>
           </div>
         </div>
 
         <div class="history-status">
-          <span id="historyStatus">그래프 데이터 불러오는 중…</span>
+          <span id="historyStatus" data-i18n="history.loading">그래프 데이터 불러오는 중…</span>
           <span id="historyResolution"></span>
         </div>
 
         <div class="comparison-legend" id="comparisonLegend">
-          <span><i class="legend-line today-line"></i>오늘</span>
-          <span><i class="legend-line previous-line"></i>전날</span>
+          <span><i class="legend-line today-line"></i><span data-i18n="common.today">오늘</span></span>
+          <span><i class="legend-line previous-line"></i><span data-i18n="common.previousDay">전날</span></span>
         </div>
 
         <div class="light-timeline-card">
           <div class="light-timeline-heading">
             <div>
               <span class="timeline-swatch" aria-hidden="true"></span>
-              <span>조명 가동 구간</span>
+              <span data-i18n="timeline.title">조명 가동 구간</span>
             </div>
-            <strong id="lightTimelineSummary">확인 중…</strong>
+            <strong id="lightTimelineSummary" data-i18n="common.checking">확인 중…</strong>
           </div>
           <div class="light-timeline-row" id="previousLightRow">
-            <span>전날</span>
-            <div class="light-timeline" role="img" aria-label="전날 조명 가동 구간">
+            <span data-i18n="common.previousDay">전날</span>
+            <div class="light-timeline" role="img" aria-label="전날 조명 가동 구간" data-i18n-aria-label="timeline.previousAria">
               <div class="light-timeline-segments" id="previousLightTimelineSegments"></div>
             </div>
           </div>
           <div class="light-timeline-row">
-            <span id="currentLightRowLabel">오늘</span>
+            <span id="currentLightRowLabel" data-i18n="common.today">오늘</span>
             <div
               class="light-timeline"
               id="lightTimeline"
               role="img"
               aria-label="선택한 기간의 조명 가동 구간"
+              data-i18n-aria-label="timeline.currentAria"
             >
               <div class="light-timeline-segments" id="lightTimelineSegments"></div>
             </div>
@@ -208,13 +216,13 @@
           <article class="chart-card">
             <div class="chart-header">
               <div>
-                <span class="chart-label temperature-text">온도</span>
+                <span class="chart-label temperature-text" data-i18n="metric.temperature">온도</span>
                 <strong id="tempSummary">--</strong>
               </div>
               <div class="chart-stats" id="tempStats"></div>
             </div>
             <div class="chart-wrap">
-              <canvas id="temperatureChart" aria-label="온도 변화 그래프"></canvas>
+              <canvas id="temperatureChart" aria-label="온도 변화 그래프" data-i18n-aria-label="chart.temperatureAria"></canvas>
               <div class="chart-tooltip" id="temperatureTooltip" hidden></div>
             </div>
           </article>
@@ -222,13 +230,13 @@
           <article class="chart-card">
             <div class="chart-header">
               <div>
-                <span class="chart-label humidity-text">습도</span>
+                <span class="chart-label humidity-text" data-i18n="metric.humidity">습도</span>
                 <strong id="humiditySummary">--</strong>
               </div>
               <div class="chart-stats" id="humidityStats"></div>
             </div>
             <div class="chart-wrap">
-              <canvas id="humidityChart" aria-label="습도 변화 그래프"></canvas>
+              <canvas id="humidityChart" aria-label="습도 변화 그래프" data-i18n-aria-label="chart.humidityAria"></canvas>
               <div class="chart-tooltip" id="humidityTooltip" hidden></div>
             </div>
           </article>
@@ -236,48 +244,48 @@
           <article class="chart-card">
             <div class="chart-header">
               <div>
-                <span class="chart-label pressure-text">기압</span>
+                <span class="chart-label pressure-text" data-i18n="metric.pressure">기압</span>
                 <strong id="pressureSummary">--</strong>
               </div>
               <div class="chart-stats" id="pressureStats"></div>
             </div>
             <div class="chart-wrap">
-              <canvas id="pressureChart" aria-label="기압 변화 그래프"></canvas>
+              <canvas id="pressureChart" aria-label="기압 변화 그래프" data-i18n-aria-label="chart.pressureAria"></canvas>
               <div class="chart-tooltip" id="pressureTooltip" hidden></div>
             </div>
           </article>
         </div>
       </section>
 
-      <section class="system-strip" aria-label="장치 상태">
+      <section class="system-strip" aria-label="장치 상태" data-i18n-aria-label="system.aria">
         <div>
-          <span>Wi-Fi 신호</span>
+          <span data-i18n="system.wifi">Wi-Fi 신호</span>
           <strong id="wifiRssi">-- dBm</strong>
-          <small id="wifiQuality">확인 중</small>
+          <small id="wifiQuality" data-i18n="common.checkingPlain">확인 중</small>
         </div>
         <div>
-          <span>마지막 엔트리</span>
+          <span data-i18n="system.lastEntry">마지막 엔트리</span>
           <strong id="entryId">#--</strong>
           <small>ThingSpeak</small>
         </div>
         <div>
-          <span>데이터 간격</span>
-          <strong>2분</strong>
-          <small>ESP32 업로드 주기</small>
+          <span data-i18n="system.interval">데이터 간격</span>
+          <strong data-i18n="system.twoMinutes">2분</strong>
+          <small data-i18n="system.uploadCycle">ESP32 업로드 주기</small>
         </div>
       </section>
     </main>
 
     <footer>
       <span>Hydroponics Monitor · Firmware v8.0</span>
-      <nav aria-label="관련 링크">
+      <nav aria-label="관련 링크" data-i18n-aria-label="footer.links">
         <a href="https://thingspeak.mathworks.com/channels/3436358" target="_blank" rel="noreferrer">ThingSpeak</a>
         <a href="https://github.com/Flammenwerfer41/Hydroponics" target="_blank" rel="noreferrer">GitHub</a>
       </nav>
     </footer>
   </div>
 
-  <noscript>이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
+  <noscript data-i18n="noscript">이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
   <script src="app.js" defer></script>
 </body>
 </html>

@@ -9,24 +9,290 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const JST_TIME_ZONE = "Asia/Tokyo";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LANGUAGE_STORAGE_KEY = "hydroponics-language";
+
+const TRANSLATIONS = {
+  ko: {
+    "meta.description": "ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드",
+    "language.selector": "표시 언어",
+    "hero.copy": "수경재배 환경과 조명 상태를 원격으로 확인합니다.",
+    "connection.loading": "연결 확인 중",
+    "connection.failed": "데이터 연결 실패",
+    "connection.online": "정상 수신 중",
+    "connection.stale": "데이터 지연",
+    "connection.offline": "장치 오프라인",
+    "current.kicker": "현재 환경",
+    "current.title": "지금의 재배 공간",
+    "current.loading": "최근 데이터 불러오는 중…",
+    "current.timeUnavailable": "수신 시각 확인 불가",
+    "current.loadFailed": "최근 데이터를 불러오지 못했습니다.",
+    "metric.temperature": "온도",
+    "metric.humidity": "습도",
+    "metric.pressure": "기압",
+    "metric.bme280": "BME280 센서",
+    "status.measurementWaiting": "측정 대기 중",
+    "status.calculationWaiting": "계산 대기 중",
+    "temperature.low": "다소 낮은 온도",
+    "temperature.high": "높은 온도",
+    "temperature.stable": "안정적인 범위",
+    "humidity.dry": "건조한 환경",
+    "humidity.high": "습도가 높은 환경",
+    "humidity.stable": "안정적인 범위",
+    "insight.kicker": "실내 환경 해석",
+    "insight.title": "온도와 습도로 계산한 참고값",
+    "insight.basis": "현재 측정값 기준",
+    "insight.discomfort": "불쾌지수",
+    "insight.vpdReference": "식물 증산 참고값",
+    "insight.dewPoint": "이슬점",
+    "insight.dewReference": "결로 참고값",
+    "insight.comfortable": "대체로 쾌적",
+    "insight.normal": "보통",
+    "insight.slightlyUncomfortable": "약간 불쾌",
+    "insight.uncomfortable": "불쾌감 높음",
+    "insight.lowVpd": "증산이 낮은 범위",
+    "insight.highVpd": "증산이 높은 범위",
+    "insight.balancedVpd": "균형적인 참고 범위",
+    "insight.condensationClose": "결로에 가까운 상태",
+    "insight.dewGap": "현재 온도보다 {value}°C 낮음",
+    "light.kicker": "LED 조명",
+    "light.checking": "상태 확인 중",
+    "light.power": "현재 소비전력",
+    "light.runtimeToday": "오늘 가동시간",
+    "light.on": "켜짐",
+    "light.off": "꺼짐",
+    "light.unknown": "상태 확인 불가",
+    "light.running": "재배 조명이 작동 중입니다.",
+    "light.waiting": "재배 조명이 대기 중입니다.",
+    "light.noData": "SwitchBot 데이터가 없습니다.",
+    "weather.kicker": "주변 날씨",
+    "weather.checking": "날씨 확인 중",
+    "weather.loading": "JMA 모델 데이터 불러오는 중…",
+    "weather.outdoorTemperature": "외부 기온",
+    "weather.feelsLike": "체감",
+    "weather.precipitation": "강수",
+    "weather.wind": "풍속",
+    "weather.source": "JMA 모델 기반 참고값 · Open-Meteo 제공",
+    "weather.updated": "JMA 모델 {time} 기준 · 1시간 자료",
+    "weather.unavailable": "날씨 확인 불가",
+    "weather.retry": "잠시 후 자동으로 다시 시도합니다.",
+    "weather.clear": "맑음",
+    "weather.mainlyClear": "대체로 맑음",
+    "weather.partlyCloudy": "구름 조금",
+    "weather.overcast": "흐림",
+    "weather.fog": "안개",
+    "weather.drizzle": "이슬비",
+    "weather.rain": "비",
+    "weather.snow": "눈",
+    "weather.showers": "소나기",
+    "weather.snowShowers": "눈 소나기",
+    "weather.thunderstorm": "뇌우",
+    "history.kicker": "환경 기록",
+    "history.title": "시간에 따른 변화",
+    "history.rangeSelector": "그래프 기간",
+    "history.rangeDay": "오늘 비교",
+    "history.rangeWeek": "7일",
+    "history.rangeMonth": "30일",
+    "history.loading": "그래프 데이터 불러오는 중…",
+    "history.loadingRange": "{range} 데이터 불러오는 중…",
+    "history.ready": "{range} · {count}개 데이터",
+    "history.loadFailed": "그래프 데이터를 불러오지 못했습니다.",
+    "history.retry": "잠시 후 자동으로 다시 시도합니다.",
+    "range.day.label": "오늘과 전날",
+    "range.day.resolution": "2분 원본 데이터",
+    "range.week.label": "최근 7일",
+    "range.week.resolution": "10분 평균",
+    "range.month.label": "최근 30일",
+    "range.month.resolution": "1시간 평균",
+    "common.today": "오늘",
+    "common.previousDay": "전날",
+    "common.checking": "확인 중…",
+    "common.checkingPlain": "확인 중",
+    "common.noData": "표시할 데이터 없음",
+    "timeline.title": "조명 가동 구간",
+    "timeline.previousAria": "전날 조명 가동 구간",
+    "timeline.currentAria": "선택한 기간의 조명 가동 구간",
+    "timeline.light": "조명",
+    "timeline.noOnRecord": "ON 구간 기록 없음",
+    "timeline.daySummary": "오늘 {today} · 전날 {previous}",
+    "timeline.rangeSummary": "표시 구간 약 {runtime}",
+    "chart.temperatureAria": "온도 변화 그래프",
+    "chart.humidityAria": "습도 변화 그래프",
+    "chart.pressureAria": "기압 변화 그래프",
+    "chart.average": "평균 {value} {unit}",
+    "chart.stats": "최저 {minimum} · 최고 {maximum}",
+    "chart.noData": "표시할 데이터가 없습니다.",
+    "system.aria": "장치 상태",
+    "system.wifi": "Wi-Fi 신호",
+    "system.lastEntry": "마지막 엔트리",
+    "system.interval": "데이터 간격",
+    "system.twoMinutes": "2분",
+    "system.uploadCycle": "ESP32 업로드 주기",
+    "wifi.unavailable": "확인 불가",
+    "wifi.excellent": "매우 좋음",
+    "wifi.good": "좋음",
+    "wifi.normal": "보통",
+    "wifi.weak": "약함",
+    "footer.links": "관련 링크",
+    "noscript": "이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.",
+    "relative.justNow": "방금 전",
+    "relative.seconds": "{value}초 전",
+    "relative.minutes": "{value}분 전",
+    "relative.hours": "{value}시간 전",
+    "relative.days": "{value}일 전",
+    "runtime.minutes": "{minutes}분",
+    "runtime.hours": "{hours}시간",
+    "runtime.hoursMinutes": "{hours}시간 {minutes}분"
+  },
+  ja: {
+    "meta.description": "ESP32水耕栽培環境センサーの温度・湿度・気圧と照明状態を確認するダッシュボード",
+    "language.selector": "表示言語",
+    "hero.copy": "水耕栽培の環境と照明の状態を遠隔で確認できます。",
+    "connection.loading": "接続確認中",
+    "connection.failed": "データ接続に失敗",
+    "connection.online": "データ受信中",
+    "connection.stale": "データ遅延",
+    "connection.offline": "デバイスはオフライン",
+    "current.kicker": "現在の環境",
+    "current.title": "現在の栽培環境",
+    "current.loading": "最新データを読み込み中…",
+    "current.timeUnavailable": "受信時刻を確認できません",
+    "current.loadFailed": "最新データを取得できませんでした。",
+    "metric.temperature": "温度",
+    "metric.humidity": "湿度",
+    "metric.pressure": "気圧",
+    "metric.bme280": "BME280センサー",
+    "status.measurementWaiting": "測定待ち",
+    "status.calculationWaiting": "計算待ち",
+    "temperature.low": "やや低い温度",
+    "temperature.high": "高い温度",
+    "temperature.stable": "安定した範囲",
+    "humidity.dry": "乾燥した環境",
+    "humidity.high": "湿度が高い環境",
+    "humidity.stable": "安定した範囲",
+    "insight.kicker": "室内環境の目安",
+    "insight.title": "温度と湿度から算出した参考値",
+    "insight.basis": "現在の測定値に基づく",
+    "insight.discomfort": "不快指数",
+    "insight.vpdReference": "植物の蒸散の参考値",
+    "insight.dewPoint": "露点",
+    "insight.dewReference": "結露の参考値",
+    "insight.comfortable": "おおむね快適",
+    "insight.normal": "普通",
+    "insight.slightlyUncomfortable": "やや不快",
+    "insight.uncomfortable": "不快感が高い",
+    "insight.lowVpd": "蒸散が少ない範囲",
+    "insight.highVpd": "蒸散が多い範囲",
+    "insight.balancedVpd": "バランスのよい参考範囲",
+    "insight.condensationClose": "結露に近い状態",
+    "insight.dewGap": "現在の温度より{value}°C低い",
+    "light.kicker": "LED照明",
+    "light.checking": "状態確認中",
+    "light.power": "現在の消費電力",
+    "light.runtimeToday": "本日の稼働時間",
+    "light.on": "点灯",
+    "light.off": "消灯",
+    "light.unknown": "状態を確認できません",
+    "light.running": "栽培照明が稼働中です。",
+    "light.waiting": "栽培照明は待機中です。",
+    "light.noData": "SwitchBotのデータがありません。",
+    "weather.kicker": "周辺の天気",
+    "weather.checking": "天気を確認中",
+    "weather.loading": "JMAモデルデータを読み込み中…",
+    "weather.outdoorTemperature": "外気温",
+    "weather.feelsLike": "体感",
+    "weather.precipitation": "降水量",
+    "weather.wind": "風速",
+    "weather.source": "JMAモデルによる参考値 · Open-Meteo提供",
+    "weather.updated": "JMAモデル {time}時点 · 1時間値",
+    "weather.unavailable": "天気を取得できません",
+    "weather.retry": "しばらくしてから自動的に再試行します。",
+    "weather.clear": "晴れ",
+    "weather.mainlyClear": "おおむね晴れ",
+    "weather.partlyCloudy": "一部曇り",
+    "weather.overcast": "曇り",
+    "weather.fog": "霧",
+    "weather.drizzle": "霧雨",
+    "weather.rain": "雨",
+    "weather.snow": "雪",
+    "weather.showers": "にわか雨",
+    "weather.snowShowers": "にわか雪",
+    "weather.thunderstorm": "雷雨",
+    "history.kicker": "環境履歴",
+    "history.title": "時間による変化",
+    "history.rangeSelector": "グラフの期間",
+    "history.rangeDay": "今日を比較",
+    "history.rangeWeek": "7日",
+    "history.rangeMonth": "30日",
+    "history.loading": "グラフデータを読み込み中…",
+    "history.loadingRange": "{range}のデータを読み込み中…",
+    "history.ready": "{range} · {count}件",
+    "history.loadFailed": "グラフデータを取得できませんでした。",
+    "history.retry": "しばらくしてから自動的に再試行します。",
+    "range.day.label": "今日と前日",
+    "range.day.resolution": "2分間隔の元データ",
+    "range.week.label": "直近7日間",
+    "range.week.resolution": "10分平均",
+    "range.month.label": "直近30日間",
+    "range.month.resolution": "1時間平均",
+    "common.today": "今日",
+    "common.previousDay": "前日",
+    "common.checking": "確認中…",
+    "common.checkingPlain": "確認中",
+    "common.noData": "表示できるデータがありません",
+    "timeline.title": "照明の稼働時間帯",
+    "timeline.previousAria": "前日の照明稼働時間帯",
+    "timeline.currentAria": "選択期間の照明稼働時間帯",
+    "timeline.light": "照明",
+    "timeline.noOnRecord": "点灯記録なし",
+    "timeline.daySummary": "今日 {today} · 前日 {previous}",
+    "timeline.rangeSummary": "表示期間 約{runtime}",
+    "chart.temperatureAria": "温度変化グラフ",
+    "chart.humidityAria": "湿度変化グラフ",
+    "chart.pressureAria": "気圧変化グラフ",
+    "chart.average": "平均 {value} {unit}",
+    "chart.stats": "最低 {minimum} · 最高 {maximum}",
+    "chart.noData": "表示できるデータがありません。",
+    "system.aria": "デバイスの状態",
+    "system.wifi": "Wi-Fi信号",
+    "system.lastEntry": "最新エントリー",
+    "system.interval": "データ間隔",
+    "system.twoMinutes": "2分",
+    "system.uploadCycle": "ESP32アップロード周期",
+    "wifi.unavailable": "確認できません",
+    "wifi.excellent": "非常に良好",
+    "wifi.good": "良好",
+    "wifi.normal": "普通",
+    "wifi.weak": "弱い",
+    "footer.links": "関連リンク",
+    "noscript": "このダッシュボードでThingSpeakデータを読み込むにはJavaScriptが必要です。",
+    "relative.justNow": "たった今",
+    "relative.seconds": "{value}秒前",
+    "relative.minutes": "{value}分前",
+    "relative.hours": "{value}時間前",
+    "relative.days": "{value}日前",
+    "runtime.minutes": "{minutes}分",
+    "runtime.hours": "{hours}時間",
+    "runtime.hoursMinutes": "{hours}時間{minutes}分"
+  }
+};
 
 const RANGE_CONFIG = {
   day: {
     query: "days=2",
-    resolution: "2분 원본 데이터",
-    label: "오늘과 전날",
+    resolutionKey: "range.day.resolution",
+    labelKey: "range.day.label",
     bucketSeconds: 120
   },
   week: {
     query: "days=7&average=10",
-    resolution: "10분 평균",
-    label: "최근 7일",
+    resolutionKey: "range.week.resolution",
+    labelKey: "range.week.label",
     bucketSeconds: 600
   },
   month: {
     query: "days=30&average=60",
-    resolution: "1시간 평균",
-    label: "최근 30일",
+    resolutionKey: "range.month.resolution",
+    labelKey: "range.month.label",
     bucketSeconds: 3600
   }
 };
@@ -71,10 +337,15 @@ const CHART_CONFIG = {
 };
 
 const state = {
+  language: initialLanguage(),
   range: "day",
+  historyTargetRange: "day",
   history: [],
+  historyStatus: "loading",
   historySequence: 0,
   currentSequence: 0,
+  currentFeed: null,
+  currentFailed: false,
   historyController: null,
   currentController: null,
   currentTimer: 0,
@@ -87,10 +358,33 @@ const state = {
   todayStart: 0,
   weatherController: null,
   weatherLocation: null,
+  weatherData: null,
+  weatherStatus: "loading",
   charts: {}
 };
 
 const element = (id) => document.getElementById(id);
+
+function initialLanguage() {
+  try {
+    return localStorage.getItem(LANGUAGE_STORAGE_KEY) === "ja" ? "ja" : "ko";
+  } catch {
+    return "ko";
+  }
+}
+
+function t(key, replacements = {}) {
+  const dictionary = TRANSLATIONS[state.language] || TRANSLATIONS.ko;
+  const template = dictionary[key] || TRANSLATIONS.ko[key] || key;
+  return Object.entries(replacements).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+    template
+  );
+}
+
+function locale() {
+  return state.language === "ja" ? "ja-JP" : "ko-KR";
+}
 
 function finiteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -107,13 +401,13 @@ function formatRuntime(minutes) {
   const rounded = Math.round(minutes);
   const hours = Math.floor(rounded / 60);
   const remainder = rounded % 60;
-  if (hours === 0) return `${remainder}분`;
-  if (remainder === 0) return `${hours}시간`;
-  return `${hours}시간 ${remainder}분`;
+  if (hours === 0) return t("runtime.minutes", { minutes: remainder });
+  if (remainder === 0) return t("runtime.hours", { hours });
+  return t("runtime.hoursMinutes", { hours, minutes: remainder });
 }
 
 function formatJst(date, options) {
-  return new Intl.DateTimeFormat("ko-KR", {
+  return new Intl.DateTimeFormat(locale(), {
     timeZone: JST_TIME_ZONE,
     ...options
   }).format(date);
@@ -151,42 +445,42 @@ function historyDomain(range) {
 
 function relativeTime(date) {
   const seconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
-  if (seconds < 10) return "방금 전";
-  if (seconds < 60) return `${seconds}초 전`;
+  if (seconds < 10) return t("relative.justNow");
+  if (seconds < 60) return t("relative.seconds", { value: seconds });
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 60) return t("relative.minutes", { value: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
-  return `${Math.floor(hours / 24)}일 전`;
+  if (hours < 24) return t("relative.hours", { value: hours });
+  return t("relative.days", { value: Math.floor(hours / 24) });
 }
 
 function temperatureDescription(value) {
-  if (!Number.isFinite(value)) return "측정 대기 중";
-  if (value < 15) return "다소 낮은 온도";
-  if (value > 32) return "높은 온도";
-  return "안정적인 범위";
+  if (!Number.isFinite(value)) return t("status.measurementWaiting");
+  if (value < 15) return t("temperature.low");
+  if (value > 32) return t("temperature.high");
+  return t("temperature.stable");
 }
 
 function humidityDescription(value) {
-  if (!Number.isFinite(value)) return "측정 대기 중";
-  if (value < 35) return "건조한 환경";
-  if (value > 75) return "습도가 높은 환경";
-  return "안정적인 범위";
+  if (!Number.isFinite(value)) return t("status.measurementWaiting");
+  if (value < 35) return t("humidity.dry");
+  if (value > 75) return t("humidity.high");
+  return t("humidity.stable");
 }
 
 function discomfortDescription(value) {
-  if (!Number.isFinite(value)) return "계산 대기 중";
-  if (value < 68) return "대체로 쾌적";
-  if (value < 75) return "보통";
-  if (value < 80) return "약간 불쾌";
-  return "불쾌감 높음";
+  if (!Number.isFinite(value)) return t("status.calculationWaiting");
+  if (value < 68) return t("insight.comfortable");
+  if (value < 75) return t("insight.normal");
+  if (value < 80) return t("insight.slightlyUncomfortable");
+  return t("insight.uncomfortable");
 }
 
 function vpdDescription(value) {
-  if (!Number.isFinite(value)) return "계산 대기 중";
-  if (value < 0.4) return "증산이 낮은 범위";
-  if (value > 1.6) return "증산이 높은 범위";
-  return "균형적인 참고 범위";
+  if (!Number.isFinite(value)) return t("status.calculationWaiting");
+  if (value < 0.4) return t("insight.lowVpd");
+  if (value > 1.6) return t("insight.highVpd");
+  return t("insight.balancedVpd");
 }
 
 function renderDerivedMetrics(temperature, humidity) {
@@ -199,9 +493,9 @@ function renderDerivedMetrics(temperature, humidity) {
     element("discomfortIndex").textContent = "--";
     element("vpdValue").textContent = "--";
     element("dewPoint").textContent = "--";
-    element("discomfortNote").textContent = "계산 대기 중";
-    element("vpdNote").textContent = "식물 증산 참고값";
-    element("dewPointNote").textContent = "결로 참고값";
+    element("discomfortNote").textContent = t("status.calculationWaiting");
+    element("vpdNote").textContent = t("insight.vpdReference");
+    element("dewPointNote").textContent = t("insight.dewReference");
     return;
   }
 
@@ -224,15 +518,17 @@ function renderDerivedMetrics(temperature, humidity) {
   element("vpdNote").textContent = vpdDescription(vpd);
   element("dewPoint").textContent = fixed(dewPoint, 1);
   element("dewPointNote").textContent =
-    condensationGap <= 2 ? "결로에 가까운 상태" : `현재 온도보다 ${fixed(condensationGap, 1)}°C 낮음`;
+    condensationGap <= 2
+      ? t("insight.condensationClose")
+      : t("insight.dewGap", { value: fixed(condensationGap, 1) });
 }
 
 function wifiDescription(rssi) {
-  if (!Number.isFinite(rssi)) return "확인 불가";
-  if (rssi >= -50) return "매우 좋음";
-  if (rssi >= -60) return "좋음";
-  if (rssi >= -70) return "보통";
-  return "약함";
+  if (!Number.isFinite(rssi)) return t("wifi.unavailable");
+  if (rssi >= -50) return t("wifi.excellent");
+  if (rssi >= -60) return t("wifi.good");
+  if (rssi >= -70) return t("wifi.normal");
+  return t("wifi.weak");
 }
 
 async function fetchJson(url, controllerRef) {
@@ -264,18 +560,18 @@ async function fetchJson(url, controllerRef) {
 }
 
 function weatherCodeInfo(code) {
-  if (code === 0) return { icon: "☀️", label: "맑음" };
-  if (code === 1) return { icon: "🌤️", label: "대체로 맑음" };
-  if (code === 2) return { icon: "⛅", label: "구름 조금" };
-  if (code === 3) return { icon: "☁️", label: "흐림" };
-  if (code === 45 || code === 48) return { icon: "🌫️", label: "안개" };
-  if (code >= 51 && code <= 57) return { icon: "🌦️", label: "이슬비" };
-  if (code >= 61 && code <= 67) return { icon: "🌧️", label: "비" };
-  if (code >= 71 && code <= 77) return { icon: "🌨️", label: "눈" };
-  if (code >= 80 && code <= 82) return { icon: "🌦️", label: "소나기" };
-  if (code === 85 || code === 86) return { icon: "🌨️", label: "눈 소나기" };
-  if (code >= 95) return { icon: "⛈️", label: "뇌우" };
-  return { icon: "🌡️", label: "날씨 확인 불가" };
+  if (code === 0) return { icon: "☀️", label: t("weather.clear") };
+  if (code === 1) return { icon: "🌤️", label: t("weather.mainlyClear") };
+  if (code === 2) return { icon: "⛅", label: t("weather.partlyCloudy") };
+  if (code === 3) return { icon: "☁️", label: t("weather.overcast") };
+  if (code === 45 || code === 48) return { icon: "🌫️", label: t("weather.fog") };
+  if (code >= 51 && code <= 57) return { icon: "🌦️", label: t("weather.drizzle") };
+  if (code >= 61 && code <= 67) return { icon: "🌧️", label: t("weather.rain") };
+  if (code >= 71 && code <= 77) return { icon: "🌨️", label: t("weather.snow") };
+  if (code >= 80 && code <= 82) return { icon: "🌦️", label: t("weather.showers") };
+  if (code === 85 || code === 86) return { icon: "🌨️", label: t("weather.snowShowers") };
+  if (code >= 95) return { icon: "⛈️", label: t("weather.thunderstorm") };
+  return { icon: "🌡️", label: t("weather.unavailable") };
 }
 
 function renderWeather(data) {
@@ -293,8 +589,9 @@ function renderWeather(data) {
 
   element("weatherIcon").textContent = weather.icon;
   element("weatherDescription").textContent = weather.label;
-  element("weatherUpdated").textContent =
-    `JMA 모델 ${modelTime || "--:--"} 기준 · 1시간 자료`;
+  element("weatherUpdated").textContent = t("weather.updated", {
+    time: modelTime || "--:--"
+  });
   element("outdoorTemperature").textContent = fixed(temperature, 1);
   element("outdoorHumidity").textContent =
     Number.isFinite(humidity) ? Math.round(humidity) : "--";
@@ -305,8 +602,8 @@ function renderWeather(data) {
 
 function renderWeatherUnavailable() {
   element("weatherIcon").textContent = "·";
-  element("weatherDescription").textContent = "날씨 확인 불가";
-  element("weatherUpdated").textContent = "잠시 후 자동으로 다시 시도합니다.";
+  element("weatherDescription").textContent = t("weather.unavailable");
+  element("weatherUpdated").textContent = t("weather.retry");
 }
 
 async function refreshWeather() {
@@ -332,9 +629,14 @@ async function refreshWeather() {
       `https://api.open-meteo.com/v1/jma?${parameters}`,
       "weatherController"
     );
+    state.weatherData = data;
+    state.weatherStatus = "ready";
     renderWeather(data);
   } catch (error) {
-    if (error.name !== "AbortError") renderWeatherUnavailable();
+    if (error.name !== "AbortError") {
+      state.weatherStatus = "error";
+      renderWeatherUnavailable();
+    }
   }
 }
 
@@ -342,6 +644,7 @@ function setWeatherLocation(channel) {
   const latitude = finiteNumber(channel?.latitude);
   const longitude = finiteNumber(channel?.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    state.weatherStatus = "error";
     renderWeatherUnavailable();
     return;
   }
@@ -362,24 +665,26 @@ function renderConnection(createdAt, failed = false) {
 
   if (failed || !(createdAt instanceof Date) || Number.isNaN(createdAt.getTime())) {
     connection.dataset.state = "offline";
-    text.textContent = "데이터 연결 실패";
+    text.textContent = t("connection.failed");
     return;
   }
 
   const ageMinutes = (Date.now() - createdAt.getTime()) / 60_000;
   if (ageMinutes <= 5) {
     connection.dataset.state = "online";
-    text.textContent = "정상 수신 중";
+    text.textContent = t("connection.online");
   } else if (ageMinutes <= 15) {
     connection.dataset.state = "stale";
-    text.textContent = "데이터 지연";
+    text.textContent = t("connection.stale");
   } else {
     connection.dataset.state = "offline";
-    text.textContent = "장치 오프라인";
+    text.textContent = t("connection.offline");
   }
 }
 
 function renderCurrent(feed) {
+  state.currentFeed = feed;
+  state.currentFailed = false;
   const temperature = finiteNumber(feed.field1);
   const humidity = finiteNumber(feed.field2);
   const pressure = finiteNumber(feed.field3);
@@ -404,10 +709,12 @@ function renderCurrent(feed) {
   const lightOn = lightStatus === 1;
   const lightKnown = lightStatus === 0 || lightStatus === 1;
   element("lightIcon").classList.toggle("on", lightOn);
-  element("lightState").textContent = lightKnown ? (lightOn ? "켜짐" : "꺼짐") : "상태 확인 불가";
+  element("lightState").textContent = lightKnown
+    ? (lightOn ? t("light.on") : t("light.off"))
+    : t("light.unknown");
   element("lightCaption").textContent = lightKnown
-    ? (lightOn ? "재배 조명이 작동 중입니다." : "재배 조명이 대기 중입니다.")
-    : "SwitchBot 데이터가 없습니다.";
+    ? (lightOn ? t("light.running") : t("light.waiting"))
+    : t("light.noData");
 
   if (!Number.isNaN(createdAt.getTime())) {
     const absolute = formatJst(createdAt, {
@@ -420,7 +727,7 @@ function renderCurrent(feed) {
     });
     element("updatedAt").textContent = `${absolute} · ${relativeTime(createdAt)}`;
   } else {
-    element("updatedAt").textContent = "수신 시각 확인 불가";
+    element("updatedAt").textContent = t("current.timeUnavailable");
   }
 
   renderConnection(createdAt);
@@ -435,8 +742,9 @@ async function refreshCurrent() {
     renderCurrent(feed);
   } catch (error) {
     if (sequence !== state.currentSequence || error.name === "AbortError") return;
+    state.currentFailed = true;
     renderConnection(null, true);
-    element("updatedAt").textContent = "최근 데이터를 불러오지 못했습니다.";
+    element("updatedAt").textContent = t("current.loadFailed");
   }
 }
 
@@ -460,13 +768,38 @@ function setRangeButtons(activeRange, disabled = false) {
   });
 }
 
+function renderHistoryStatus() {
+  const range = state.historyStatus === "loading"
+    ? state.historyTargetRange
+    : state.range;
+  const config = RANGE_CONFIG[range] || RANGE_CONFIG.day;
+  if (state.historyStatus === "loading") {
+    element("historyStatus").textContent = t("history.loadingRange", {
+      range: t(config.labelKey)
+    });
+    return;
+  }
+  if (state.historyStatus === "error") {
+    element("historyStatus").textContent = t("history.loadFailed");
+    element("historyResolution").textContent = t("history.retry");
+    return;
+  }
+  element("historyStatus").textContent = t("history.ready", {
+    range: t(config.labelKey),
+    count: state.history.length.toLocaleString(locale())
+  });
+  element("historyResolution").textContent = t(config.resolutionKey);
+}
+
 async function loadHistory(range, announceLoading = true) {
   if (document.hidden) return;
   const config = RANGE_CONFIG[range] || RANGE_CONFIG.day;
   const sequence = ++state.historySequence;
 
   if (announceLoading) {
-    element("historyStatus").textContent = `${config.label} 데이터 불러오는 중…`;
+    state.historyStatus = "loading";
+    state.historyTargetRange = range;
+    renderHistoryStatus();
     setRangeButtons(state.range, true);
   }
 
@@ -479,23 +812,24 @@ async function loadHistory(range, announceLoading = true) {
     const points = parseHistory(Array.isArray(data.feeds) ? data.feeds : [])
       .filter((point) => point.time >= earliest && point.time <= domain.end);
     state.range = range;
+    state.historyTargetRange = range;
     state.history = points;
+    state.historyStatus = "ready";
     state.rangeStart = domain.start;
     state.rangeEnd = domain.end;
     state.previousStart = domain.previousStart;
     state.todayStart = domain.todayStart;
     setRangeButtons(range, false);
     element("comparisonLegend").hidden = range !== "day";
-    element("historyStatus").textContent = `${config.label} · ${points.length.toLocaleString("ko-KR")}개 데이터`;
-    element("historyResolution").textContent = config.resolution;
+    renderHistoryStatus();
     renderLightTimeline();
     updateChartSummaries();
     drawAllCharts();
   } catch (error) {
     if (sequence !== state.historySequence || error.name === "AbortError") return;
+    state.historyStatus = "error";
     setRangeButtons(state.range, false);
-    element("historyStatus").textContent = "그래프 데이터를 불러오지 못했습니다.";
-    element("historyResolution").textContent = "잠시 후 자동으로 다시 시도합니다.";
+    renderHistoryStatus();
   }
 }
 
@@ -582,7 +916,7 @@ function renderLightTimeline() {
   previousContainer.replaceChildren();
 
   if (state.history.length < 2) {
-    summary.textContent = "표시할 데이터 없음";
+    summary.textContent = t("common.noData");
     startLabel.textContent = "--";
     endLabel.textContent = "--";
     return;
@@ -611,17 +945,20 @@ function renderLightTimeline() {
     );
 
     previousRow.hidden = false;
-    currentRowLabel.textContent = "오늘";
+    currentRowLabel.textContent = t("common.today");
     summary.textContent = previousSegments.length || todaySegments.length
-      ? `오늘 ${formatRuntime(todayRuntime / 60_000)} · 전날 ${formatRuntime(previousRuntime / 60_000)}`
-      : "ON 구간 기록 없음";
+      ? t("timeline.daySummary", {
+        today: formatRuntime(todayRuntime / 60_000),
+        previous: formatRuntime(previousRuntime / 60_000)
+      })
+      : t("timeline.noOnRecord");
     startLabel.textContent = "00:00";
     endLabel.textContent = "24:00";
     return;
   }
 
   previousRow.hidden = true;
-  currentRowLabel.textContent = "조명";
+  currentRowLabel.textContent = t("timeline.light");
   const segments = lightSegments();
   const runtime = renderTimelineSegments(
     container,
@@ -630,8 +967,8 @@ function renderLightTimeline() {
     state.rangeEnd
   );
   summary.textContent = segments.length
-    ? `표시 구간 약 ${formatRuntime(runtime / 60_000)}`
-    : "ON 구간 기록 없음";
+    ? t("timeline.rangeSummary", { runtime: formatRuntime(runtime / 60_000) })
+    : t("timeline.noOnRecord");
   startLabel.textContent = timelineLabel(state.rangeStart);
   endLabel.textContent = timelineLabel(state.rangeEnd);
 }
@@ -656,12 +993,17 @@ function updateChartSummaries() {
     const stats = chartStats(config.field);
     if (!stats) {
       element(config.summaryId).textContent = "--";
-      element(config.statsId).textContent = "표시할 데이터 없음";
+      element(config.statsId).textContent = t("common.noData");
       return;
     }
-    element(config.summaryId).textContent = `평균 ${fixed(stats.average, config.decimals)} ${config.unit}`;
-    element(config.statsId).textContent =
-      `최저 ${fixed(stats.minimum, config.decimals)} · 최고 ${fixed(stats.maximum, config.decimals)}`;
+    element(config.summaryId).textContent = t("chart.average", {
+      value: fixed(stats.average, config.decimals),
+      unit: config.unit
+    });
+    element(config.statsId).textContent = t("chart.stats", {
+      minimum: fixed(stats.minimum, config.decimals),
+      maximum: fixed(stats.maximum, config.decimals)
+    });
   });
 }
 
@@ -713,14 +1055,14 @@ function chartSeries(field) {
   return [
     {
       key: "previous",
-      label: "전날",
+      label: t("common.previousDay"),
       points: points
         .filter((point) => point.time >= state.previousStart && point.time < state.todayStart)
         .map((point) => ({ ...point, plotTime: point.time + DAY_MS }))
     },
     {
       key: "today",
-      label: "오늘",
+      label: t("common.today"),
       points: points
         .filter((point) => point.time >= state.todayStart && point.time < state.rangeEnd)
         .map((point) => ({ ...point, plotTime: point.time }))
@@ -805,7 +1147,7 @@ class LineChart {
       context.fillStyle = cssValue("--faint");
       context.font = "12px system-ui";
       context.textAlign = "center";
-      context.fillText("표시할 데이터가 없습니다.", width / 2, height / 2);
+      context.fillText(t("chart.noData"), width / 2, height / 2);
       this.plot = null;
       this.points = [];
       return;
@@ -1045,6 +1387,66 @@ function startPolling() {
   }
 }
 
+function translateStaticContent() {
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+    node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+  });
+  document.querySelectorAll("[data-i18n-content]").forEach((node) => {
+    node.setAttribute("content", t(node.dataset.i18nContent));
+  });
+}
+
+function setLanguage(language, persist = true) {
+  state.language = language === "ja" ? "ja" : "ko";
+  document.documentElement.lang = state.language;
+  translateStaticContent();
+
+  document.querySelectorAll(".language-button").forEach((button) => {
+    const active = button.dataset.language === state.language;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+
+  if (persist) {
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, state.language);
+    } catch {
+      // The dashboard still works when browser storage is unavailable.
+    }
+  }
+
+  const currentWasFailed = state.currentFailed;
+  if (state.currentFeed) {
+    renderCurrent(state.currentFeed);
+  }
+  if (currentWasFailed) {
+    state.currentFailed = true;
+    renderConnection(null, true);
+    element("updatedAt").textContent = t("current.loadFailed");
+  }
+
+  if (state.weatherStatus === "ready" && state.weatherData) {
+    renderWeather(state.weatherData);
+  } else if (state.weatherStatus === "error") {
+    renderWeatherUnavailable();
+  }
+
+  renderHistoryStatus();
+  renderLightTimeline();
+  updateChartSummaries();
+  drawAllCharts();
+}
+
+document.querySelectorAll(".language-button").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.dataset.language === state.language) return;
+    setLanguage(button.dataset.language);
+  });
+});
+
 document.querySelectorAll(".range-button").forEach((button) => {
   button.addEventListener("click", () => {
     const range = button.dataset.range;
@@ -1072,4 +1474,5 @@ Object.entries(CHART_CONFIG).forEach(([name, config]) => {
   state.charts[name] = new LineChart(config);
 });
 
+setLanguage(state.language, false);
 startPolling();
