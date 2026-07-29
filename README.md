@@ -1,0 +1,31 @@
+# ESP32 Hydroponics Environment Monitor
+
+ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
+현재 안정화 기준은 v8.0이며 PlatformIO와 Arduino framework를 사용합니다.
+
+## 개발 환경
+
+- Board: Espressif ESP32 Dev Module (`esp32dev`)
+- Framework: Arduino
+- Sensor: BME280
+- I2C: SDA 18, SCL 19
+- Storage: LittleFS 30일 링버퍼
+- Integrations: ThingSpeak, SwitchBot Plug Mini
+- Features: 로컬 웹 대시보드, CSV 다운로드, OTA
+
+## 처음 설정
+
+1. `include/secrets.example.h`를 `include/secrets.h`로 복사합니다.
+2. `include/secrets.h`의 자리표시자를 실제 값으로 교체합니다.
+3. VS Code에서 PlatformIO의 **Build**를 실행합니다.
+
+`include/secrets.h`는 `.gitignore`에 등록되어 있으므로 Git에 포함하면 안 됩니다.
+
+## 호환성 주의사항
+
+- `/sensor_ring.bin`의 `SensorRecord` 크기와 필드 순서를 변경하지 않습니다.
+- `/light_events.bin`의 `LightEvent` 크기와 필드 순서를 변경하지 않습니다.
+- `/api/current`, `/api/history`, `/download.csv`의 응답 형식을 유지합니다.
+- 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
+
+원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
