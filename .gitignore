@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+
+# Device credentials must never be committed.
+include/secrets.h
+secrets.txt
+
