@@ -38,8 +38,8 @@ const CHART_CONFIG = {
     unit: "°C",
     decimals: 1,
     cssColor: "--temperature",
-    minimumSpan: 5,
-    step: 1
+    minimumSpan: 10,
+    step: 2.5
   },
   humidity: {
     canvasId: "humidityChart",
@@ -50,7 +50,7 @@ const CHART_CONFIG = {
     unit: "%",
     decimals: 1,
     cssColor: "--humidity",
-    minimumSpan: 10,
+    minimumSpan: 20,
     step: 5
   },
   pressure: {
@@ -62,7 +62,7 @@ const CHART_CONFIG = {
     unit: "hPa",
     decimals: 1,
     cssColor: "--pressure",
-    minimumSpan: 10,
+    minimumSpan: 20,
     step: 5
   }
 };
@@ -473,6 +473,23 @@ function tooltipTime(timestamp) {
   });
 }
 
+function splitCoordinateGroups(coordinates, maximumGapMs) {
+  const groups = [];
+  let current = [];
+
+  coordinates.forEach((coordinate) => {
+    const previous = current[current.length - 1];
+    if (previous && coordinate.point.time - previous.point.time > maximumGapMs) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(coordinate);
+  });
+
+  if (current.length) groups.push(current);
+  return groups;
+}
+
 class LineChart {
   constructor(config) {
     this.config = config;
@@ -578,28 +595,45 @@ class LineChart {
       y: yFor(point[this.config.field]),
       point
     }));
+    const rangeConfig = RANGE_CONFIG[state.range] || RANGE_CONFIG.day;
+    const coordinateGroups = splitCoordinateGroups(
+      coordinates,
+      rangeConfig.bucketSeconds * 3 * 1000
+    );
 
-    context.beginPath();
-    coordinates.forEach((coordinate, index) => {
-      if (index === 0) context.moveTo(coordinate.x, coordinate.y);
-      else context.lineTo(coordinate.x, coordinate.y);
+    coordinateGroups.forEach((group) => {
+      if (group.length < 2) return;
+      context.beginPath();
+      group.forEach((coordinate, index) => {
+        if (index === 0) context.moveTo(coordinate.x, coordinate.y);
+        else context.lineTo(coordinate.x, coordinate.y);
+      });
+      context.lineTo(group[group.length - 1].x, margin.top + plotHeight);
+      context.lineTo(group[0].x, margin.top + plotHeight);
+      context.closePath();
+      context.fillStyle = gradient;
+      context.fill();
     });
-    context.lineTo(coordinates[coordinates.length - 1].x, margin.top + plotHeight);
-    context.lineTo(coordinates[0].x, margin.top + plotHeight);
-    context.closePath();
-    context.fillStyle = gradient;
-    context.fill();
 
-    context.beginPath();
-    coordinates.forEach((coordinate, index) => {
-      if (index === 0) context.moveTo(coordinate.x, coordinate.y);
-      else context.lineTo(coordinate.x, coordinate.y);
-    });
     context.strokeStyle = lineColor;
+    context.fillStyle = lineColor;
     context.lineWidth = 2;
     context.lineJoin = "round";
     context.lineCap = "round";
-    context.stroke();
+    coordinateGroups.forEach((group) => {
+      if (group.length === 1) {
+        context.beginPath();
+        context.arc(group[0].x, group[0].y, 2.1, 0, Math.PI * 2);
+        context.fill();
+        return;
+      }
+      context.beginPath();
+      group.forEach((coordinate, index) => {
+        if (index === 0) context.moveTo(coordinate.x, coordinate.y);
+        else context.lineTo(coordinate.x, coordinate.y);
+      });
+      context.stroke();
+    });
 
     const latest = coordinates[coordinates.length - 1];
     context.beginPath();
