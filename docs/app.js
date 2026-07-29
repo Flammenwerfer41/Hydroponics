@@ -11,17 +11,20 @@ const RANGE_CONFIG = {
   day: {
     query: "days=1",
     resolution: "2분 원본 데이터",
-    label: "최근 24시간"
+    label: "최근 24시간",
+    bucketSeconds: 120
   },
   week: {
     query: "days=7&average=10",
     resolution: "10분 평균",
-    label: "최근 7일"
+    label: "최근 7일",
+    bucketSeconds: 600
   },
   month: {
     query: "days=30&average=60",
     resolution: "1시간 평균",
-    label: "최근 30일"
+    label: "최근 30일",
+    bucketSeconds: 3600
   }
 };
 
@@ -256,7 +259,8 @@ function parseHistory(feeds) {
       time: Date.parse(feed.created_at),
       temperature: finiteNumber(feed.field1),
       humidity: finiteNumber(feed.field2),
-      pressure: finiteNumber(feed.field3)
+      pressure: finiteNumber(feed.field3),
+      lightStatus: finiteNumber(feed.field6)
     }))
     .filter((point) => Number.isFinite(point.time))
     .sort((a, b) => a.time - b.time);
@@ -288,6 +292,7 @@ async function loadHistory(range, announceLoading = true) {
     setRangeButtons(range, false);
     element("historyStatus").textContent = `${config.label} · ${points.length.toLocaleString("ko-KR")}개 데이터`;
     element("historyResolution").textContent = config.resolution;
+    renderLightTimeline();
     updateChartSummaries();
     drawAllCharts();
   } catch (error) {
@@ -296,6 +301,96 @@ async function loadHistory(range, announceLoading = true) {
     element("historyStatus").textContent = "그래프 데이터를 불러오지 못했습니다.";
     element("historyResolution").textContent = "잠시 후 자동으로 다시 시도합니다.";
   }
+}
+
+function lightSegments() {
+  if (state.history.length < 2) return [];
+  const config = RANGE_CONFIG[state.range] || RANGE_CONFIG.day;
+  const maximumGap = config.bucketSeconds * 3 * 1000;
+  const segments = [];
+
+  for (let index = 0; index < state.history.length - 1; index += 1) {
+    const current = state.history[index];
+    const next = state.history[index + 1];
+    const duration = next.time - current.time;
+    if (
+      !Number.isFinite(current.lightStatus) ||
+      current.lightStatus <= 0 ||
+      duration <= 0 ||
+      duration > maximumGap
+    ) {
+      continue;
+    }
+
+    const intensity = Math.min(1, Math.max(0, current.lightStatus));
+    const previous = segments[segments.length - 1];
+    if (
+      previous &&
+      current.time - previous.end <= config.bucketSeconds * 1000 * 1.1 &&
+      Math.abs(previous.intensity - intensity) < 0.08
+    ) {
+      previous.end = next.time;
+      previous.weightedDuration += duration * intensity;
+      previous.duration += duration;
+      previous.intensity = previous.weightedDuration / previous.duration;
+    } else {
+      segments.push({
+        start: current.time,
+        end: next.time,
+        intensity,
+        weightedDuration: duration * intensity,
+        duration
+      });
+    }
+  }
+
+  return segments;
+}
+
+function timelineLabel(timestamp) {
+  const options = state.range === "day"
+    ? { hour: "2-digit", minute: "2-digit", hour12: false }
+    : { month: "numeric", day: "numeric" };
+  return formatJst(new Date(timestamp), options);
+}
+
+function renderLightTimeline() {
+  const container = element("lightTimelineSegments");
+  const summary = element("lightTimelineSummary");
+  const startLabel = element("lightTimelineStart");
+  const endLabel = element("lightTimelineEnd");
+  container.replaceChildren();
+
+  if (state.history.length < 2) {
+    summary.textContent = "표시할 데이터 없음";
+    startLabel.textContent = "--";
+    endLabel.textContent = "--";
+    return;
+  }
+
+  const start = state.history[0].time;
+  const end = state.history[state.history.length - 1].time;
+  const span = Math.max(1, end - start);
+  const segments = lightSegments();
+  let runtime = 0;
+
+  segments.forEach((segment) => {
+    const bar = document.createElement("span");
+    const left = ((segment.start - start) / span) * 100;
+    const width = ((segment.end - segment.start) / span) * 100;
+    bar.className = "light-timeline-segment";
+    bar.style.left = `${left}%`;
+    bar.style.width = `${Math.max(0.12, width)}%`;
+    bar.style.opacity = `${0.38 + segment.intensity * 0.62}`;
+    container.appendChild(bar);
+    runtime += segment.weightedDuration;
+  });
+
+  summary.textContent = segments.length
+    ? `표시 구간 약 ${formatRuntime(runtime / 60_000)}`
+    : "ON 구간 기록 없음";
+  startLabel.textContent = timelineLabel(start);
+  endLabel.textContent = timelineLabel(end);
 }
 
 function chartValues(field) {
@@ -433,9 +528,20 @@ class LineChart {
     const lineColor = cssValue(this.config.cssColor);
     const gridColor = cssValue("--grid");
     const mutedColor = cssValue("--faint");
+    const lightColor = cssValue("--light");
 
     const xFor = (timestamp) => margin.left + ((timestamp - firstTime) / timeSpan) * plotWidth;
     const yFor = (value) => margin.top + ((maximum - value) / valueSpan) * plotHeight;
+
+    lightSegments().forEach((segment) => {
+      const start = Math.max(firstTime, segment.start);
+      const end = Math.min(lastTime, segment.end);
+      if (end <= start) return;
+      const left = xFor(start);
+      const right = xFor(end);
+      context.fillStyle = colorWithAlpha(lightColor, 0.055 + segment.intensity * 0.095);
+      context.fillRect(left, margin.top, Math.max(1, right - left), plotHeight);
+    });
 
     context.lineWidth = 1;
     context.strokeStyle = gridColor;

@@ -434,6 +434,80 @@ h2 {
   font-size: 0.76rem;
 }
 
+.light-timeline-card {
+  margin-bottom: 14px;
+  padding: 13px 14px 11px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface-soft);
+}
+
+.light-timeline-heading,
+.light-timeline-heading > div {
+  display: flex;
+  align-items: center;
+}
+
+.light-timeline-heading {
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.light-timeline-heading > div {
+  gap: 7px;
+  font-weight: 700;
+}
+
+.light-timeline-heading strong {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.timeline-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--light);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--light) 15%, transparent);
+}
+
+.light-timeline {
+  position: relative;
+  height: 14px;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent 24.8%, var(--grid) 25%, transparent 25.2%),
+    linear-gradient(90deg, transparent 49.8%, var(--grid) 50%, transparent 50.2%),
+    linear-gradient(90deg, transparent 74.8%, var(--grid) 75%, transparent 75.2%),
+    var(--surface-solid);
+}
+
+.light-timeline-segments {
+  position: absolute;
+  inset: 0;
+}
+
+.light-timeline-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+  background: var(--light);
+}
+
+.light-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  color: var(--faint);
+  font-size: 0.68rem;
+}
+
 .chart-stack {
   display: grid;
   gap: 14px;
@@ -680,6 +754,19 @@ noscript {
     flex-direction: column;
     gap: 3px;
     padding: 5px 2px;
+  }
+
+  .light-timeline-card {
+    padding-right: 11px;
+    padding-left: 11px;
+  }
+
+  .light-timeline-heading {
+    align-items: flex-start;
+  }
+
+  .light-timeline-heading strong {
+    text-align: right;
   }
 
   .chart-card {
