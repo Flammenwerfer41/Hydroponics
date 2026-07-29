@@ -119,7 +119,10 @@ struct CacheBucket {
 struct ThingSpeakJob {
   SensorRecord record;
   uint32_t slot;
-  float uptimeHours;
+  bool lightTelemetryValid;
+  bool lightOn;
+  float lightPower;
+  uint32_t lightMinutesToday;
 };
 
 struct SwitchBotJob {
@@ -1080,7 +1083,11 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
     ThingSpeak.setField(2, job.record.humidity);
     ThingSpeak.setField(3, job.record.pressure);
     ThingSpeak.setField(4, static_cast<long>(job.record.rssi));
-    ThingSpeak.setField(5, job.uptimeHours);
+    if (job.lightTelemetryValid) {
+      ThingSpeak.setField(6, job.lightOn ? 1 : 0);
+      ThingSpeak.setField(7, job.lightPower);
+      ThingSpeak.setField(8, static_cast<long>(job.lightMinutesToday));
+    }
     ThingSpeak.setStatus("Sensor online");
     code = ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_WRITE_API_KEY);
     if (code == 200) {
@@ -1143,7 +1150,19 @@ bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
   ThingSpeakJob job{};
   job.record = record;
   job.slot = slot;
-  job.uptimeHours = static_cast<float>(esp_timer_get_time() / 1000000ULL) / 3600.0f;
+  if (takeMutex(stateMutex, portMAX_DELAY)) {
+    job.lightTelemetryValid =
+      latestLightStateKnown &&
+      latestSwitchBotHttpCode == 200 &&
+      latestSwitchBotStatusCode == 100 &&
+      isfinite(latestLightPower);
+    if (job.lightTelemetryValid) {
+      job.lightOn = latestLightOn;
+      job.lightPower = latestLightPower;
+      job.lightMinutesToday = latestLightMinutesToday;
+    }
+    giveMutex(stateMutex);
+  }
   if (xQueueSend(thingSpeakQueue, &job, 0) == pdTRUE) return true;
   droppedUploadJobs++;
   Serial.printf("ThingSpeak queue full; dropped upload job. Total dropped: %lu\n",
