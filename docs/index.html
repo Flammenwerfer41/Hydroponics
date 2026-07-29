@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1714">
+  <meta name="description" content="ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드">
+  <title>Hydroponics Monitor</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">ESP32 · THINGSPEAK</div>
+        <h1>Hydroponics Monitor</h1>
+        <p class="hero-copy">수경재배 환경과 조명 상태를 원격으로 확인합니다.</p>
+      </div>
+      <div class="connection" id="connection" data-state="loading" role="status" aria-live="polite">
+        <span class="connection-dot"></span>
+        <span id="connectionText">연결 확인 중</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="section current-section" aria-labelledby="currentTitle">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">현재 환경</p>
+            <h2 id="currentTitle">지금의 재배 공간</h2>
+          </div>
+          <div class="updated-at" id="updatedAt">최근 데이터 불러오는 중…</div>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card temperature">
+            <div class="metric-topline">
+              <span class="metric-label">온도</span>
+              <span class="metric-symbol" aria-hidden="true">T</span>
+            </div>
+            <div class="metric-reading"><span id="temperature">--</span><small>°C</small></div>
+            <div class="metric-note" id="temperatureNote">측정 대기 중</div>
+          </article>
+
+          <article class="metric-card humidity">
+            <div class="metric-topline">
+              <span class="metric-label">습도</span>
+              <span class="metric-symbol" aria-hidden="true">H</span>
+            </div>
+            <div class="metric-reading"><span id="humidity">--</span><small>%</small></div>
+            <div class="metric-note" id="humidityNote">측정 대기 중</div>
+          </article>
+
+          <article class="metric-card pressure">
+            <div class="metric-topline">
+              <span class="metric-label">기압</span>
+              <span class="metric-symbol" aria-hidden="true">P</span>
+            </div>
+            <div class="metric-reading"><span id="pressure">--</span><small>hPa</small></div>
+            <div class="metric-note">BME280 센서</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="light-panel" aria-labelledby="lightTitle">
+        <div class="light-state-block">
+          <div class="light-icon" id="lightIcon" aria-hidden="true">
+            <span class="light-rays"></span>
+            <span class="light-bulb"></span>
+          </div>
+          <div>
+            <p class="section-kicker">LED 조명</p>
+            <h2 id="lightTitle"><span id="lightState">상태 확인 중</span></h2>
+            <p class="light-caption" id="lightCaption">SwitchBot Plug Mini</p>
+          </div>
+        </div>
+        <div class="light-metrics">
+          <div>
+            <span>현재 소비전력</span>
+            <strong><span id="lightPower">--</span> <small>W</small></strong>
+          </div>
+          <div>
+            <span>오늘 가동시간</span>
+            <strong id="lightRuntime">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="section history-section" aria-labelledby="historyTitle">
+        <div class="section-heading history-heading">
+          <div>
+            <p class="section-kicker">환경 기록</p>
+            <h2 id="historyTitle">시간에 따른 변화</h2>
+          </div>
+          <div class="range-switcher" aria-label="그래프 기간">
+            <button type="button" class="range-button active" data-range="day">24시간</button>
+            <button type="button" class="range-button" data-range="week">7일</button>
+            <button type="button" class="range-button" data-range="month">30일</button>
+          </div>
+        </div>
+
+        <div class="history-status">
+          <span id="historyStatus">그래프 데이터 불러오는 중…</span>
+          <span id="historyResolution"></span>
+        </div>
+
+        <div class="chart-stack">
+          <article class="chart-card">
+            <div class="chart-header">
+              <div>
+                <span class="chart-label temperature-text">온도</span>
+                <strong id="tempSummary">--</strong>
+              </div>
+              <div class="chart-stats" id="tempStats"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="temperatureChart" aria-label="온도 변화 그래프"></canvas>
+              <div class="chart-tooltip" id="temperatureTooltip" hidden></div>
+            </div>
+          </article>
+
+          <article class="chart-card">
+            <div class="chart-header">
+              <div>
+                <span class="chart-label humidity-text">습도</span>
+                <strong id="humiditySummary">--</strong>
+              </div>
+              <div class="chart-stats" id="humidityStats"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="humidityChart" aria-label="습도 변화 그래프"></canvas>
+              <div class="chart-tooltip" id="humidityTooltip" hidden></div>
+            </div>
+          </article>
+
+          <article class="chart-card">
+            <div class="chart-header">
+              <div>
+                <span class="chart-label pressure-text">기압</span>
+                <strong id="pressureSummary">--</strong>
+              </div>
+              <div class="chart-stats" id="pressureStats"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="pressureChart" aria-label="기압 변화 그래프"></canvas>
+              <div class="chart-tooltip" id="pressureTooltip" hidden></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="system-strip" aria-label="장치 상태">
+        <div>
+          <span>Wi-Fi 신호</span>
+          <strong id="wifiRssi">-- dBm</strong>
+          <small id="wifiQuality">확인 중</small>
+        </div>
+        <div>
+          <span>마지막 엔트리</span>
+          <strong id="entryId">#--</strong>
+          <small>ThingSpeak</small>
+        </div>
+        <div>
+          <span>데이터 간격</span>
+          <strong>2분</strong>
+          <small>ESP32 업로드 주기</small>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Hydroponics Monitor · Firmware v8.0</span>
+      <nav aria-label="관련 링크">
+        <a href="https://thingspeak.mathworks.com/channels/3436358" target="_blank" rel="noreferrer">ThingSpeak</a>
+        <a href="https://github.com/Flammenwerfer41/Hydroponics" target="_blank" rel="noreferrer">GitHub</a>
+      </nav>
+    </footer>
+  </div>
+
+  <noscript>이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
+  <script src="app.js" defer></script>
+</body>
+</html>
