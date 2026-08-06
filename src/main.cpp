@@ -1,5 +1,5 @@
 /*
-  ESP32 + BME280 Hydroponics Environment Logger v8.0
+  ESP32 + BME280 Hydroponics Environment Logger v8.1.0
   --------------------------------------------------
   Cloud-focused release. Sensor and SwitchBot values are sent to ThingSpeak for
   the public GitHub Pages dashboard. ArduinoOTA and the existing 30-day LittleFS
@@ -897,7 +897,7 @@ void performMeasurementCycle() {
 void setup() {
   Serial.begin(115200);
   delay(800);
-  Serial.println("\nESP32 hydroponics logger v8.0 starting.");
+  Serial.println("\nESP32 hydroponics logger v8.1.0 starting.");
 
   fsMutex = xSemaphoreCreateMutex();
   stateMutex = xSemaphoreCreateMutex();

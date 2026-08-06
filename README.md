@@ -1,7 +1,7 @@
 # ESP32 Hydroponics Environment Monitor
 
 ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 안정화 기준은 v8.0이며 PlatformIO와 Arduino framework를 사용합니다.
+현재 안정화 기준은 v8.1.0이며 PlatformIO와 Arduino framework를 사용합니다.
 
 ## 개발 환경
 
