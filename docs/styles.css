@@ -18,6 +18,8 @@
   --humidity-soft: #e9f3ff;
   --pressure: #8a6fd1;
   --pressure-soft: #f1edff;
+  --water: #199ca4;
+  --water-soft: #e3f7f7;
   --light: #e0a21c;
   --light-soft: #fff4cf;
   --danger: #c64545;
@@ -47,6 +49,8 @@
     --humidity-soft: #172e41;
     --pressure: #b59bea;
     --pressure-soft: #2b2342;
+    --water: #64d2d5;
+    --water-soft: #163638;
     --light: #f0bd4b;
     --light-soft: #3b3119;
     --danger: #ff8585;
@@ -443,6 +447,10 @@ h2 {
   background: var(--pressure-soft);
 }
 
+.metric-card.water::after {
+  background: var(--water-soft);
+}
+
 .metric-topline {
   display: flex;
   position: relative;
@@ -480,6 +488,11 @@ h2 {
 .pressure .metric-symbol {
   background: var(--pressure-soft);
   color: var(--pressure);
+}
+
+.water .metric-symbol {
+  background: var(--water-soft);
+  color: var(--water);
 }
 
 .metric-reading {
@@ -787,6 +800,10 @@ h2 {
 
 .pressure-text {
   color: var(--pressure);
+}
+
+.water-text {
+  color: var(--water);
 }
 
 .chart-header strong {

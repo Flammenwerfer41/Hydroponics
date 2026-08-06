@@ -29,7 +29,13 @@ const TRANSLATIONS = {
     "metric.temperature": "온도",
     "metric.humidity": "습도",
     "metric.pressure": "기압",
+    "metric.waterTemperature": "수온",
     "metric.bme280": "BME280 센서",
+    "scene.aria": "수경재배 시스템 개요",
+    "scene.airKicker": "잎 주변 공기",
+    "scene.airTitle": "재배 공간",
+    "scene.waterKicker": "화분 속 양액",
+    "scene.waterSensor": "DS18B20 · GPIO 21",
     "status.measurementWaiting": "측정 대기 중",
     "status.calculationWaiting": "계산 대기 중",
     "temperature.low": "다소 낮은 온도",
@@ -118,6 +124,7 @@ const TRANSLATIONS = {
     "chart.temperatureAria": "온도 변화 그래프",
     "chart.humidityAria": "습도 변화 그래프",
     "chart.pressureAria": "기압 변화 그래프",
+    "chart.waterTemperatureAria": "수온 변화 그래프",
     "chart.average": "평균 {value} {unit}",
     "chart.stats": "최저 {minimum} · 최고 {maximum}",
     "chart.noData": "표시할 데이터가 없습니다.",
@@ -160,7 +167,13 @@ const TRANSLATIONS = {
     "metric.temperature": "温度",
     "metric.humidity": "湿度",
     "metric.pressure": "気圧",
+    "metric.waterTemperature": "水温",
     "metric.bme280": "BME280センサー",
+    "scene.aria": "水耕栽培システムの概要",
+    "scene.airKicker": "葉の周辺環境",
+    "scene.airTitle": "栽培空間",
+    "scene.waterKicker": "容器内の養液",
+    "scene.waterSensor": "DS18B20 · GPIO 21",
     "status.measurementWaiting": "測定待ち",
     "status.calculationWaiting": "計算待ち",
     "temperature.low": "やや低い温度",
@@ -249,6 +262,7 @@ const TRANSLATIONS = {
     "chart.temperatureAria": "温度変化グラフ",
     "chart.humidityAria": "湿度変化グラフ",
     "chart.pressureAria": "気圧変化グラフ",
+    "chart.waterTemperatureAria": "水温変化グラフ",
     "chart.average": "平均 {value} {unit}",
     "chart.stats": "最低 {minimum} · 最高 {maximum}",
     "chart.noData": "表示できるデータがありません。",
@@ -333,6 +347,18 @@ const CHART_CONFIG = {
     cssColor: "--pressure",
     minimumSpan: 20,
     step: 5
+  },
+  waterTemperature: {
+    canvasId: "waterTemperatureChart",
+    tooltipId: "waterTemperatureTooltip",
+    summaryId: "waterTempSummary",
+    statsId: "waterTempStats",
+    field: "waterTemperature",
+    unit: "°C",
+    decimals: 1,
+    cssColor: "--water",
+    minimumSpan: 10,
+    step: 2.5
   }
 };
 
@@ -689,6 +715,7 @@ function renderCurrent(feed) {
   const humidity = finiteNumber(feed.field2);
   const pressure = finiteNumber(feed.field3);
   const rssi = finiteNumber(feed.field4);
+  const waterTemperature = finiteNumber(feed.field5);
   const lightStatus = finiteNumber(feed.field6);
   const lightPower = finiteNumber(feed.field7);
   const lightMinutes = finiteNumber(feed.field8);
@@ -697,6 +724,7 @@ function renderCurrent(feed) {
   element("temperature").textContent = fixed(temperature, 1);
   element("humidity").textContent = fixed(humidity, 1);
   element("pressure").textContent = fixed(pressure, 1);
+  element("waterTemperature").textContent = fixed(waterTemperature, 1);
   element("temperatureNote").textContent = temperatureDescription(temperature);
   element("humidityNote").textContent = humidityDescription(humidity);
   renderDerivedMetrics(temperature, humidity);
@@ -755,6 +783,7 @@ function parseHistory(feeds) {
       temperature: finiteNumber(feed.field1),
       humidity: finiteNumber(feed.field2),
       pressure: finiteNumber(feed.field3),
+      waterTemperature: finiteNumber(feed.field5),
       lightStatus: finiteNumber(feed.field6)
     }))
     .filter((point) => Number.isFinite(point.time))

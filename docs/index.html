@@ -66,6 +66,15 @@
             <div class="metric-reading"><span id="pressure">--</span><small>hPa</small></div>
             <div class="metric-note" data-i18n="metric.bme280">BME280 센서</div>
           </article>
+
+          <article class="metric-card water">
+            <div class="metric-topline">
+              <span class="metric-label" data-i18n="metric.waterTemperature">수온</span>
+              <span class="metric-symbol" aria-hidden="true">W</span>
+            </div>
+            <div class="metric-reading"><span id="waterTemperature">--</span><small>°C</small></div>
+            <div class="metric-note" data-i18n="scene.waterSensor">DS18B20 · GPIO 21</div>
+          </article>
         </div>
       </section>
 
@@ -252,6 +261,20 @@
             <div class="chart-wrap">
               <canvas id="pressureChart" aria-label="기압 변화 그래프" data-i18n-aria-label="chart.pressureAria"></canvas>
               <div class="chart-tooltip" id="pressureTooltip" hidden></div>
+            </div>
+          </article>
+
+          <article class="chart-card">
+            <div class="chart-header">
+              <div>
+                <span class="chart-label water-text" data-i18n="metric.waterTemperature">수온</span>
+                <strong id="waterTempSummary">--</strong>
+              </div>
+              <div class="chart-stats" id="waterTempStats"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="waterTemperatureChart" aria-label="수온 변화 그래프" data-i18n-aria-label="chart.waterTemperatureAria"></canvas>
+              <div class="chart-tooltip" id="waterTemperatureTooltip" hidden></div>
             </div>
           </article>
         </div>
