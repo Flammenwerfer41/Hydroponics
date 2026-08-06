@@ -2,7 +2,8 @@
 
 const CHANNEL_ID = 3436358;
 const API_BASE = `https://api.thingspeak.com/channels/${CHANNEL_ID}`;
-const CURRENT_REFRESH_MS = 15_000;
+const CURRENT_REFRESH_MS = 60_000;
+const CURRENT_LOOKBACK_RESULTS = 30;
 const HISTORY_REFRESH_MS = 120_000;
 const WEATHER_REFRESH_MS = 15 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -37,6 +38,8 @@ const TRANSLATIONS = {
     "scene.waterKicker": "화분 속 양액",
     "scene.waterSensor": "DS18B20 · GPIO 21",
     "status.measurementWaiting": "측정 대기 중",
+    "status.lastMeasured": "{time} 측정",
+    "status.noRecentData": "최근 정상 데이터 없음",
     "status.calculationWaiting": "계산 대기 중",
     "temperature.low": "다소 낮은 온도",
     "temperature.high": "높은 온도",
@@ -175,6 +178,8 @@ const TRANSLATIONS = {
     "scene.waterKicker": "容器内の養液",
     "scene.waterSensor": "DS18B20 · GPIO 21",
     "status.measurementWaiting": "測定待ち",
+    "status.lastMeasured": "{time}に測定",
+    "status.noRecentData": "最近の正常データなし",
     "status.calculationWaiting": "計算待ち",
     "temperature.low": "やや低い温度",
     "temperature.high": "高い温度",
@@ -708,17 +713,53 @@ function renderConnection(createdAt, failed = false) {
   }
 }
 
-function renderCurrent(feed) {
-  state.currentFeed = feed;
+function latestValidField(feeds, fieldName) {
+  for (let index = feeds.length - 1; index >= 0; index -= 1) {
+    const feed = feeds[index];
+    const value = finiteNumber(feed?.[fieldName]);
+    const createdAt = new Date(feed?.created_at);
+    if (Number.isFinite(value) && !Number.isNaN(createdAt.getTime())) {
+      return { value, createdAt };
+    }
+  }
+  return { value: null, createdAt: null };
+}
+
+function buildCurrentSnapshot(data) {
+  const feeds = Array.isArray(data?.feeds)
+    ? data.feeds.filter((feed) => feed && typeof feed === "object")
+    : [];
+  if (!feeds.length) throw new Error("Invalid current response");
+
+  const latestFeed = feeds[feeds.length - 1];
+  const fields = {};
+  for (let number = 1; number <= 8; number += 1) {
+    fields[`field${number}`] = latestValidField(feeds, `field${number}`);
+  }
+  return { latestFeed, fields };
+}
+
+function renderMeasurementAge(id, reading) {
+  const target = element(id);
+  if (!target) return;
+  target.textContent = reading?.createdAt instanceof Date
+    ? t("status.lastMeasured", { time: relativeTime(reading.createdAt) })
+    : t("status.noRecentData");
+}
+
+function renderCurrent(snapshot) {
+  state.currentFeed = snapshot;
   state.currentFailed = false;
-  const temperature = finiteNumber(feed.field1);
-  const humidity = finiteNumber(feed.field2);
-  const pressure = finiteNumber(feed.field3);
-  const rssi = finiteNumber(feed.field4);
-  const waterTemperature = finiteNumber(feed.field5);
-  const lightStatus = finiteNumber(feed.field6);
-  const lightPower = finiteNumber(feed.field7);
-  const lightMinutes = finiteNumber(feed.field8);
+  const feed = snapshot.latestFeed;
+  const fields = snapshot.fields;
+  const temperature = fields.field1.value;
+  const humidity = fields.field2.value;
+  const pressure = fields.field3.value;
+  const rssi = fields.field4.value;
+  const waterTemperature = fields.field5.value;
+  const lightStatus = fields.field6.value;
+  const lightPower = fields.field7.value;
+  const lightMinutes = fields.field8.value;
   const createdAt = new Date(feed.created_at);
 
   element("temperature").textContent = fixed(temperature, 1);
@@ -733,6 +774,10 @@ function renderCurrent(feed) {
   element("entryId").textContent = feed.entry_id ? `#${feed.entry_id}` : "#--";
   element("lightPower").textContent = fixed(lightPower, 1);
   element("lightRuntime").textContent = formatRuntime(lightMinutes);
+
+  renderMeasurementAge("airUpdated", fields.field1);
+  renderMeasurementAge("waterUpdated", fields.field5);
+  renderMeasurementAge("lightUpdated", fields.field6);
 
   const lightOn = lightStatus === 1;
   const lightKnown = lightStatus === 0 || lightStatus === 1;
@@ -765,9 +810,12 @@ async function refreshCurrent() {
   if (document.hidden) return;
   const sequence = ++state.currentSequence;
   try {
-    const feed = await fetchJson(`${API_BASE}/feeds/last.json`, "currentController");
+    const data = await fetchJson(
+      `${API_BASE}/feeds.json?results=${CURRENT_LOOKBACK_RESULTS}`,
+      "currentController"
+    );
     if (sequence !== state.currentSequence) return;
-    renderCurrent(feed);
+    renderCurrent(buildCurrentSnapshot(data));
   } catch (error) {
     if (sequence !== state.currentSequence || error.name === "AbortError") return;
     state.currentFailed = true;
