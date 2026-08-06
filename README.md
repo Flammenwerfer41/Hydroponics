@@ -12,7 +12,8 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 30일 링버퍼
 - Integrations: ThingSpeak (`field5`: water temperature), SwitchBot Plug Mini
-- Features: 로컬 웹 대시보드, CSV 다운로드, OTA
+- Dashboard: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
+- Features: ThingSpeak 원격 기록, GitHub Pages 대시보드, OTA
 
 ## 처음 설정
 
@@ -43,8 +44,10 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 ## 호환성 주의사항
 
 - `/sensor_ring.bin`의 `SensorRecord` 크기와 필드 순서를 변경하지 않습니다.
-- `/light_events.bin`의 `LightEvent` 크기와 필드 순서를 변경하지 않습니다.
-- `/api/current`, `/api/history`, `/download.csv`의 응답 형식을 유지합니다.
+- LittleFS 30일 센서 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
+- ESP 로컬 웹 대시보드와 `/api/current`, `/api/history`, `/download.csv`는
+  클라우드 대시보드 전환에 따라 제거되었습니다.
+- 기존 `/light_events.bin` 파일은 삭제하지 않지만 더 이상 읽거나 기록하지 않습니다.
 - 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
