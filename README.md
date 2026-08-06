@@ -53,6 +53,10 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
   `SensorRecord`를 사용하며
   2분 간격으로 30일을 저장합니다.
 - LittleFS 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
+- 정상 ThingSpeak 전송에 실패한 센서 기록은 `cloud_ok` 플래그 없이 남으며,
+  연결이 복구되면 오래된 기록부터 최대 40건씩 원래 측정 시각으로 벌크 재전송합니다.
+  링버퍼에 포함된 `field1`~`field5`만 복구 대상이며, SwitchBot 조명 필드 6~8은
+  실시간 전송만 유지합니다.
 - ESP 로컬 웹 대시보드와 `/api/current`, `/api/history`, `/download.csv`는
   클라우드 대시보드 전환에 따라 제거되었습니다.
 - 기존 `/sensor_ring.bin`, `/sensor_ring_v2.bin`, `/light_events.bin`은 새 형식으로

@@ -51,7 +51,10 @@ constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000UL;
 constexpr uint32_t NTP_RETRY_INTERVAL_MS = 300000UL;
 constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = 8000UL;
 constexpr uint8_t THINGSPEAK_QUEUE_LENGTH = 4;
-constexpr uint32_t THINGSPEAK_TASK_STACK = 6144;
+constexpr uint32_t THINGSPEAK_TASK_STACK = 8192;
+constexpr uint8_t THINGSPEAK_BULK_BATCH_SIZE = 40;
+constexpr uint32_t THINGSPEAK_MIN_WRITE_INTERVAL_MS = 16000UL;
+constexpr uint32_t THINGSPEAK_BULK_HTTP_TIMEOUT_MS = 15000UL;
 constexpr uint8_t SWITCHBOT_QUEUE_LENGTH = 1;
 constexpr uint32_t SWITCHBOT_TASK_STACK = 8192;
 constexpr uint32_t SWITCHBOT_HTTP_TIMEOUT_MS = 10000UL;
@@ -96,6 +99,11 @@ struct ThingSpeakJob {
   uint32_t lightMinutesToday;
 };
 
+struct StoredRecordRef {
+  SensorRecord record;
+  uint32_t slot;
+};
+
 struct SwitchBotJob {
   uint32_t sampleTimestamp;
 };
@@ -134,6 +142,8 @@ uint32_t consecutiveUploadFailures = 0;
 uint8_t consecutiveBme280Failures = 0;
 uint32_t consecutiveWaterTemperatureFailures = 0;
 uint32_t droppedUploadJobs = 0;
+uint32_t lastThingSpeakWriteMs = 0;
+StoredRecordRef bulkUploadBatch[THINGSPEAK_BULK_BATCH_SIZE]{};
 bool latestLightStateKnown = false;
 bool latestLightOn = false;
 float latestLightPower = NAN;
@@ -538,6 +548,71 @@ bool markRecordCloudOk(uint32_t slot, uint32_t expectedTimestamp) {
   return ok;
 }
 
+size_t collectPendingCloudRecords(StoredRecordRef* records, size_t capacity) {
+  if (!filesystemReady || records == nullptr || capacity == 0) return 0;
+  if (!takeMutex(fsMutex, pdMS_TO_TICKS(2000))) return 0;
+
+  File file = LittleFS.open(LOG_FILE_PATH, "r");
+  if (!file) {
+    giveMutex(fsMutex);
+    return 0;
+  }
+
+  size_t count = 0;
+  uint32_t startSlot = newestSlot < 0
+    ? 0
+    : (static_cast<uint32_t>(newestSlot) + 1UL) % MAX_RECORDS;
+  for (uint32_t offset = 0; offset < MAX_RECORDS && count < capacity; ++offset) {
+    uint32_t slot = (startSlot + offset) % MAX_RECORDS;
+    SensorRecord record{};
+    if (!readRecordAt(file, slot, record)) break;
+    if (validStoredRecord(record) && (record.flags & FLAG_CLOUD_OK) == 0) {
+      bool duplicateTimestamp = false;
+      for (size_t index = 0; index < count; ++index) {
+        if (records[index].record.timestamp == record.timestamp) {
+          duplicateTimestamp = true;
+          break;
+        }
+      }
+      if (duplicateTimestamp) continue;
+      records[count].record = record;
+      records[count].slot = slot;
+      count++;
+    }
+    if ((offset & 0x3FFU) == 0) yield();
+  }
+
+  file.close();
+  giveMutex(fsMutex);
+  return count;
+}
+
+size_t markRecordsCloudOk(const StoredRecordRef* records, size_t count) {
+  if (!filesystemReady || records == nullptr || count == 0) return 0;
+  if (!takeMutex(fsMutex, pdMS_TO_TICKS(2000))) return 0;
+
+  File file = LittleFS.open(LOG_FILE_PATH, "r+");
+  if (!file) {
+    giveMutex(fsMutex);
+    return 0;
+  }
+
+  size_t marked = 0;
+  for (size_t index = 0; index < count; ++index) {
+    SensorRecord stored{};
+    bool matches = readRecordAt(file, records[index].slot, stored) &&
+                   validStoredRecord(stored) &&
+                   stored.timestamp == records[index].record.timestamp;
+    if (!matches) continue;
+    stored.flags |= FLAG_CLOUD_OK;
+    if (writeRecordAt(file, records[index].slot, stored)) marked++;
+  }
+  file.flush();
+  file.close();
+  giveMutex(fsMutex);
+  return marked;
+}
+
 // ================= THINGSPEAK TASK =================
 int uploadToThingSpeak(const ThingSpeakJob& job) {
   if (WiFi.status() != WL_CONNECTED) return -1000;
@@ -559,6 +634,7 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
     }
     ThingSpeak.setStatus("Sensor online");
     code = ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_WRITE_API_KEY);
+    lastThingSpeakWriteMs = millis();
     if (code == 200) {
       Serial.printf("ThingSpeak upload succeeded on attempt %u.\n", attempt);
       return code;
@@ -567,6 +643,105 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
     if (attempt < MAX_UPLOAD_ATTEMPTS) vTaskDelay(pdMS_TO_TICKS(UPLOAD_RETRY_DELAY_MS));
   }
   return code;
+}
+
+bool waitForThingSpeakWriteWindow() {
+  while (lastThingSpeakWriteMs != 0 &&
+         millis() - lastThingSpeakWriteMs < THINGSPEAK_MIN_WRITE_INTERVAL_MS) {
+    if (WiFi.status() != WL_CONNECTED || otaInProgress) return false;
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  return WiFi.status() == WL_CONNECTED && !otaInProgress;
+}
+
+bool appendBulkRecordJson(String& payload, const SensorRecord& record, bool first) {
+  if (!validStoredRecord(record)) return false;
+  if (!first) payload += ',';
+  payload += F("{\"created_at\":\"");
+  payload += String(record.timestamp);
+  payload += '"';
+  if ((record.flags & FLAG_BME280_VALID) != 0) {
+    payload += F(",\"field1\":");
+    payload += String(record.temperature, 3);
+    payload += F(",\"field2\":");
+    payload += String(record.humidity, 3);
+    payload += F(",\"field3\":");
+    payload += String(record.pressure, 3);
+  }
+  if (record.rssi < 0) {
+    payload += F(",\"field4\":");
+    payload += String(static_cast<int>(record.rssi));
+  }
+  if ((record.flags & FLAG_WATER_VALID) != 0) {
+    payload += F(",\"field5\":");
+    payload += String(record.waterTemperature, 3);
+  }
+  payload += '}';
+  return true;
+}
+
+int bulkUploadToThingSpeak(const StoredRecordRef* records, size_t count) {
+  if (WiFi.status() != WL_CONNECTED || records == nullptr || count == 0) return -1000;
+  if (!waitForThingSpeakWriteWindow()) return -1001;
+
+  String payload;
+  if (!payload.reserve(96 + count * 150U)) {
+    Serial.println("ThingSpeak bulk upload skipped: insufficient heap for JSON payload.");
+    return -1002;
+  }
+  payload += F("{\"write_api_key\":\"");
+  payload += THINGSPEAK_WRITE_API_KEY;
+  payload += F("\",\"updates\":[");
+  size_t appended = 0;
+  for (size_t index = 0; index < count; ++index) {
+    if (appendBulkRecordJson(payload, records[index].record, appended == 0)) appended++;
+  }
+  payload += F("]}");
+  if (appended == 0) return -1003;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  String url = String("https://api.thingspeak.com/channels/") +
+               String(THINGSPEAK_CHANNEL_ID) + "/bulk_update.json";
+  if (!http.begin(client, url)) {
+    Serial.println("ThingSpeak bulk HTTP begin failed.");
+    return -1004;
+  }
+  http.setTimeout(THINGSPEAK_BULK_HTTP_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(reinterpret_cast<uint8_t*>(payload.begin()), payload.length());
+  lastThingSpeakWriteMs = millis();
+  String response = code > 0 ? http.getString() : String();
+  http.end();
+  response.replace(" ", "");
+  response.replace("\r", "");
+  response.replace("\n", "");
+  if (code == 200 && response.indexOf("\"success\":true") >= 0) return code;
+
+  Serial.printf("ThingSpeak bulk upload failed: HTTP %d.\n", code);
+  return code == 200 ? -1005 : code;
+}
+
+void recoverPendingThingSpeakRecords() {
+  size_t count = collectPendingCloudRecords(
+    bulkUploadBatch, THINGSPEAK_BULK_BATCH_SIZE);
+  if (count == 0) return;
+
+  Serial.printf("ThingSpeak recovery: uploading %u stored records.\n",
+                static_cast<unsigned>(count));
+  int code = bulkUploadToThingSpeak(bulkUploadBatch, count);
+  if (code != 200) {
+    Serial.println("ThingSpeak recovery deferred; stored records remain pending.");
+    return;
+  }
+
+  size_t marked = markRecordsCloudOk(bulkUploadBatch, count);
+  Serial.printf("ThingSpeak recovery succeeded: %u uploaded, %u marked complete.\n",
+                static_cast<unsigned>(count), static_cast<unsigned>(marked));
+  if (marked != count) {
+    Serial.println("Some recovered slots changed before confirmation; they will be checked again.");
+  }
 }
 
 void thingSpeakTask(void* parameter) {
@@ -590,6 +765,8 @@ void thingSpeakTask(void* parameter) {
     if (!cloudOk) {
       Serial.printf("Cloud upload failed; local record retained. Consecutive failures: %lu\n",
                     static_cast<unsigned long>(consecutiveUploadFailures));
+    } else {
+      recoverPendingThingSpeakRecords();
     }
   }
 }
