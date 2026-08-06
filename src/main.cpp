@@ -34,6 +34,8 @@
 #include <FS.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <ThingSpeak.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -53,6 +55,9 @@ const char* TZ_INFO = "JST-9";
 
 constexpr int I2C_SDA_PIN = 18;
 constexpr int I2C_SCL_PIN = 19;
+constexpr int WATER_TEMPERATURE_PIN = 21;
+constexpr uint8_t DS18B20_RESOLUTION_BITS = 11;
+constexpr uint32_t DS18B20_CONVERSION_MS = 375UL;
 constexpr uint32_t SAMPLE_INTERVAL_MS = 120000UL;
 constexpr uint8_t MAX_UPLOAD_ATTEMPTS = 1;
 constexpr uint32_t UPLOAD_RETRY_DELAY_MS = 0UL;
@@ -120,6 +125,8 @@ struct CacheBucket {
 struct ThingSpeakJob {
   SensorRecord record;
   uint32_t slot;
+  bool waterTemperatureValid;
+  float waterTemperature;
   bool lightTelemetryValid;
   bool lightOn;
   float lightPower;
@@ -172,6 +179,9 @@ uint32_t invalidStoredLightEventCount = 0;
 uint32_t lightEventCacheCount = 0;
 
 Adafruit_BME280 bme;
+OneWire waterTemperatureBus(WATER_TEMPERATURE_PIN);
+DallasTemperature waterTemperatureSensors(&waterTemperatureBus);
+DeviceAddress waterTemperatureAddress{};
 WiFiClient thingSpeakClient;
 WebServer server(80);
 QueueHandle_t thingSpeakQueue = nullptr;
@@ -182,6 +192,7 @@ TaskHandle_t thingSpeakTaskHandle = nullptr;
 TaskHandle_t switchBotTaskHandle = nullptr;
 
 uint8_t bmeAddress = 0;
+bool waterTemperatureSensorReady = false;
 bool filesystemMounted = false;
 bool filesystemReady = false;
 bool historyCacheReady = false;
@@ -562,6 +573,43 @@ bool readBME280(float& temperature, float& humidity, float& pressure) {
   humidity = bme.readHumidity();
   pressure = bme.readPressure() / 100.0f;
   return validSensorData(temperature, humidity, pressure);
+}
+
+// ================= DS18B20 WATER TEMPERATURE =================
+bool validWaterTemperature(float temperature) {
+  return isfinite(temperature) &&
+         temperature != DEVICE_DISCONNECTED_C &&
+         temperature != 85.0f &&
+         temperature >= -55.0f && temperature <= 125.0f;
+}
+
+bool initializeDS18B20() {
+  waterTemperatureSensors.begin();
+  if (!waterTemperatureSensors.getAddress(waterTemperatureAddress, 0)) {
+    waterTemperatureSensorReady = false;
+    Serial.printf("DS18B20 not found on GPIO %d.\n", WATER_TEMPERATURE_PIN);
+    return false;
+  }
+  waterTemperatureSensors.setResolution(
+    waterTemperatureAddress, DS18B20_RESOLUTION_BITS);
+  waterTemperatureSensors.setWaitForConversion(false);
+  waterTemperatureSensorReady = true;
+  Serial.printf("DS18B20 ready on GPIO %d at %u-bit resolution.\n",
+                WATER_TEMPERATURE_PIN, DS18B20_RESOLUTION_BITS);
+  return true;
+}
+
+bool readWaterTemperature(float& temperature) {
+  temperature = NAN;
+  if (!waterTemperatureSensorReady && !initializeDS18B20()) return false;
+  waterTemperatureSensors.requestTemperaturesByAddress(waterTemperatureAddress);
+  servicedDelay(DS18B20_CONVERSION_MS);
+  temperature = waterTemperatureSensors.getTempC(waterTemperatureAddress);
+  if (validWaterTemperature(temperature)) return true;
+  waterTemperatureSensorReady = false;
+  temperature = NAN;
+  Serial.println("Invalid DS18B20 water temperature; field5 will be omitted.");
+  return false;
 }
 
 // ================= LITTLEFS LOW-LEVEL I/O =================
@@ -1099,6 +1147,9 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
     ThingSpeak.setField(2, job.record.humidity);
     ThingSpeak.setField(3, job.record.pressure);
     ThingSpeak.setField(4, static_cast<long>(job.record.rssi));
+    if (job.waterTemperatureValid) {
+      ThingSpeak.setField(5, job.waterTemperature);
+    }
     if (job.lightTelemetryValid) {
       ThingSpeak.setField(6, job.lightOn ? 1 : 0);
       ThingSpeak.setField(7, job.lightPower);
@@ -1162,11 +1213,14 @@ bool setupThingSpeakTask() {
   return true;
 }
 
-bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
+bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot,
+                           bool waterTemperatureValid, float waterTemperature) {
   if (!thingSpeakQueue) return false;
   ThingSpeakJob job{};
   job.record = record;
   job.slot = slot;
+  job.waterTemperatureValid = waterTemperatureValid;
+  job.waterTemperature = waterTemperature;
   if (takeMutex(stateMutex, portMAX_DELAY)) {
     job.lightTelemetryValid =
       latestLightStateKnown &&
@@ -1872,6 +1926,9 @@ void performMeasurementCycle() {
   }
   consecutiveSensorFailures = 0;
 
+  float waterTemperature = NAN;
+  bool waterTemperatureValid = readWaterTemperature(waterTemperature);
+
   int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
   if (takeMutex(stateMutex, portMAX_DELAY)) {
     latestTemperature = temperature;
@@ -1886,6 +1943,9 @@ void performMeasurementCycle() {
   Serial.printf("Time: %s\n", formatLocalTime(now).c_str());
   Serial.printf("Temperature: %.2f C\nHumidity: %.2f %%\nPressure: %.2f hPa\nRSSI: %d dBm\n",
                 temperature, humidity, pressure, rssi);
+  if (waterTemperatureValid) {
+    Serial.printf("Water temperature: %.2f C\n", waterTemperature);
+  }
 
   SensorRecord record{};
   record.timestamp = static_cast<uint32_t>(now);
@@ -1907,7 +1967,8 @@ void performMeasurementCycle() {
   }
 
   if (isTimeValid(now)) queueSwitchBotQuery(static_cast<uint32_t>(now));
-  if (!queueThingSpeakUpload(record, localSaved ? writtenSlot : UINT32_MAX)) {
+  if (!queueThingSpeakUpload(record, localSaved ? writtenSlot : UINT32_MAX,
+                             waterTemperatureValid, waterTemperature)) {
     if (takeMutex(stateMutex, portMAX_DELAY)) {
       latestThingSpeakCode = -2000;
       if (consecutiveUploadFailures < UINT32_MAX) consecutiveUploadFailures++;
@@ -1941,6 +2002,7 @@ void setup() {
   minFreeHeapObserved = ESP.getFreeHeap();
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   initializeBME280();
+  initializeDS18B20();
   connectWiFi();
   if (WiFi.status() == WL_CONNECTED) {
     requestTimeSync();

@@ -7,10 +7,11 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 
 - Board: Espressif ESP32 Dev Module (`esp32dev`)
 - Framework: Arduino
-- Sensor: BME280
+- Sensors: BME280, DS18B20 water temperature sensor
 - I2C: SDA 18, SCL 19
+- 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 30일 링버퍼
-- Integrations: ThingSpeak, SwitchBot Plug Mini
+- Integrations: ThingSpeak (`field5`: water temperature), SwitchBot Plug Mini
 - Features: 로컬 웹 대시보드, CSV 다운로드, OTA
 
 ## 처음 설정
