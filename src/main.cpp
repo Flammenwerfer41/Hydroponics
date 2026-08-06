@@ -6,8 +6,8 @@
   sensor ring remain available, while the ESP-hosted dashboard and HTTP API have
   been removed to reduce firmware size and runtime memory use.
 
-  The existing sensor ring binary format and path are unchanged, so v7.x data is
-  retained.
+  Water temperature is a required measurement and is stored with the BME280 data
+  in a new 24-byte ring record. Legacy local files are removed during migration.
 */
 
 #include <Arduino.h>
@@ -63,7 +63,9 @@ constexpr bool FORMAT_LITTLEFS_IF_MOUNT_FAILED = false;
 // ================= 30-DAY RING BUFFER =================
 constexpr uint32_t RECORDS_PER_DAY = 24UL * 60UL / 2UL;
 constexpr uint32_t MAX_RECORDS = 30UL * RECORDS_PER_DAY;
-constexpr const char* LOG_FILE_PATH = "/sensor_ring.bin";
+constexpr const char* LOG_FILE_PATH = "/sensor_ring_v2.bin";
+constexpr const char* LEGACY_LOG_FILE_PATH = "/sensor_ring.bin";
+constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
 
 enum RecordFlags : uint8_t {
@@ -76,17 +78,16 @@ struct __attribute__((packed)) SensorRecord {
   float temperature;
   float humidity;
   float pressure;
+  float waterTemperature;
   int8_t rssi;
   uint8_t flags;
   uint16_t reserved;
 };
-static_assert(sizeof(SensorRecord) == 20, "SensorRecord must remain 20 bytes");
+static_assert(sizeof(SensorRecord) == 24, "SensorRecord must remain 24 bytes");
 
 struct ThingSpeakJob {
   SensorRecord record;
   uint32_t slot;
-  bool waterTemperatureValid;
-  float waterTemperature;
   bool lightTelemetryValid;
   bool lightOn;
   float lightPower;
@@ -169,17 +170,25 @@ String formatLocalTime(time_t value) {
   return String(buffer);
 }
 
-bool validSensorData(float temperature, float humidity, float pressure) {
+bool validBME280Data(float temperature, float humidity, float pressure) {
   return isfinite(temperature) && isfinite(humidity) && isfinite(pressure) &&
          temperature >= -40.0f && temperature <= 85.0f &&
          humidity >= 0.0f && humidity <= 100.0f &&
          pressure >= 300.0f && pressure <= 1100.0f;
 }
 
+bool validWaterTemperature(float temperature) {
+  return isfinite(temperature) &&
+         temperature != DEVICE_DISCONNECTED_C &&
+         temperature != 85.0f &&
+         temperature >= -55.0f && temperature <= 125.0f;
+}
+
 bool validStoredRecord(const SensorRecord& record) {
   return record.timestamp >= VALID_EPOCH_MIN &&
          (record.flags & FLAG_SENSOR_VALID) != 0 &&
-         validSensorData(record.temperature, record.humidity, record.pressure);
+         validBME280Data(record.temperature, record.humidity, record.pressure) &&
+         validWaterTemperature(record.waterTemperature);
 }
 
 void serviceNetwork() {
@@ -321,17 +330,10 @@ bool readBME280(float& temperature, float& humidity, float& pressure) {
   temperature = bme.readTemperature();
   humidity = bme.readHumidity();
   pressure = bme.readPressure() / 100.0f;
-  return validSensorData(temperature, humidity, pressure);
+  return validBME280Data(temperature, humidity, pressure);
 }
 
 // ================= DS18B20 WATER TEMPERATURE =================
-bool validWaterTemperature(float temperature) {
-  return isfinite(temperature) &&
-         temperature != DEVICE_DISCONNECTED_C &&
-         temperature != 85.0f &&
-         temperature >= -55.0f && temperature <= 125.0f;
-}
-
 bool initializeDS18B20() {
   waterTemperatureSensors.begin();
   if (!waterTemperatureSensors.getAddress(waterTemperatureAddress, 0)) {
@@ -357,7 +359,7 @@ bool readWaterTemperature(float& temperature) {
   if (validWaterTemperature(temperature)) return true;
   waterTemperatureSensorReady = false;
   temperature = NAN;
-  Serial.println("Invalid DS18B20 water temperature; field5 will be omitted.");
+  Serial.println("Invalid DS18B20 water temperature; measurement cycle will be skipped.");
   return false;
 }
 
@@ -374,6 +376,19 @@ bool writeRecordAt(File& file, uint32_t slot, const SensorRecord& record) {
   return file.write(reinterpret_cast<const uint8_t*>(&record), sizeof(record)) == sizeof(record);
 }
 
+bool removeLegacyStorageFiles() {
+  const char* paths[] = {LEGACY_LOG_FILE_PATH, LEGACY_LIGHT_EVENT_FILE_PATH};
+  for (const char* path : paths) {
+    if (!LittleFS.exists(path)) continue;
+    if (!LittleFS.remove(path)) {
+      Serial.printf("ERROR: Could not remove legacy storage file %s.\n", path);
+      return false;
+    }
+    Serial.printf("Removed legacy storage file %s.\n", path);
+  }
+  return true;
+}
+
 bool ensureRingFile() {
   if (!filesystemMounted) return false;
   File file = LittleFS.open(LOG_FILE_PATH, "r");
@@ -381,7 +396,8 @@ bool ensureRingFile() {
   if (file) file.close();
   if (currentSize == REQUIRED_LOG_BYTES) return true;
 
-  Serial.printf("Creating ring file: %u bytes\n", static_cast<unsigned>(REQUIRED_LOG_BYTES));
+  Serial.printf("Creating water-aware ring file: %u bytes\n",
+                static_cast<unsigned>(REQUIRED_LOG_BYTES));
   file = LittleFS.open(LOG_FILE_PATH, "w");
   if (!file) return false;
   if (!file.seek(REQUIRED_LOG_BYTES - 1, SeekSet)) {
@@ -455,7 +471,7 @@ bool initializeFilesystem() {
     Serial.println("ERROR: Could not lock LittleFS during initialization.");
     return false;
   }
-  bool ok = ensureRingFile() && scanRingFile();
+  bool ok = removeLegacyStorageFiles() && ensureRingFile() && scanRingFile();
   giveMutex(fsMutex);
 
   filesystemReady = ok;
@@ -521,9 +537,7 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
     ThingSpeak.setField(2, job.record.humidity);
     ThingSpeak.setField(3, job.record.pressure);
     ThingSpeak.setField(4, static_cast<long>(job.record.rssi));
-    if (job.waterTemperatureValid) {
-      ThingSpeak.setField(5, job.waterTemperature);
-    }
+    ThingSpeak.setField(5, job.record.waterTemperature);
     if (job.lightTelemetryValid) {
       ThingSpeak.setField(6, job.lightOn ? 1 : 0);
       ThingSpeak.setField(7, job.lightPower);
@@ -585,14 +599,11 @@ bool setupThingSpeakTask() {
   return true;
 }
 
-bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot,
-                           bool waterTemperatureValid, float waterTemperature) {
+bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
   if (!thingSpeakQueue) return false;
   ThingSpeakJob job{};
   job.record = record;
   job.slot = slot;
-  job.waterTemperatureValid = waterTemperatureValid;
-  job.waterTemperature = waterTemperature;
   if (takeMutex(stateMutex, portMAX_DELAY)) {
     job.lightTelemetryValid =
       latestLightStateKnown &&
@@ -797,10 +808,15 @@ void performMeasurementCycle() {
   float temperature = NAN;
   float humidity = NAN;
   float pressure = NAN;
-  if (!readBME280(temperature, humidity, pressure)) {
+  float waterTemperature = NAN;
+  bool bme280Valid = readBME280(temperature, humidity, pressure);
+  bool waterTemperatureValid = readWaterTemperature(waterTemperature);
+  if (!bme280Valid || !waterTemperatureValid) {
     consecutiveSensorFailures++;
-    bmeAddress = 0;
-    Serial.printf("Invalid sensor read (%u/%u).\n",
+    if (!bme280Valid) bmeAddress = 0;
+    Serial.printf("Measurement failed: BME280=%s, DS18B20=%s (%u/%u).\n",
+                  bme280Valid ? "ok" : "failed",
+                  waterTemperatureValid ? "ok" : "failed",
                   consecutiveSensorFailures, MAX_CONSECUTIVE_SENSOR_FAILURES);
     if (consecutiveSensorFailures >= MAX_CONSECUTIVE_SENSOR_FAILURES) {
       servicedDelay(1000);
@@ -810,24 +826,20 @@ void performMeasurementCycle() {
   }
   consecutiveSensorFailures = 0;
 
-  float waterTemperature = NAN;
-  bool waterTemperatureValid = readWaterTemperature(waterTemperature);
-
   int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
 
   Serial.println("--------------------------------");
   Serial.printf("Time: %s\n", formatLocalTime(now).c_str());
   Serial.printf("Temperature: %.2f C\nHumidity: %.2f %%\nPressure: %.2f hPa\nRSSI: %d dBm\n",
                 temperature, humidity, pressure, rssi);
-  if (waterTemperatureValid) {
-    Serial.printf("Water temperature: %.2f C\n", waterTemperature);
-  }
+  Serial.printf("Water temperature: %.2f C\n", waterTemperature);
 
   SensorRecord record{};
   record.timestamp = static_cast<uint32_t>(now);
   record.temperature = temperature;
   record.humidity = humidity;
   record.pressure = pressure;
+  record.waterTemperature = waterTemperature;
   record.rssi = static_cast<int8_t>(constrain(rssi, -127, 0));
   record.flags = FLAG_SENSOR_VALID;
 
@@ -841,8 +853,7 @@ void performMeasurementCycle() {
   }
 
   if (isTimeValid(now)) queueSwitchBotQuery(static_cast<uint32_t>(now));
-  if (!queueThingSpeakUpload(record, localSaved ? writtenSlot : UINT32_MAX,
-                             waterTemperatureValid, waterTemperature)) {
+  if (!queueThingSpeakUpload(record, localSaved ? writtenSlot : UINT32_MAX)) {
     if (takeMutex(stateMutex, portMAX_DELAY)) {
       if (consecutiveUploadFailures < UINT32_MAX) consecutiveUploadFailures++;
       giveMutex(stateMutex);

@@ -38,16 +38,21 @@ pio run -e esp32dev_ota -t upload
 OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. 환경변수는
 현재 터미널 세션에만 유지되며 Git에 저장되지 않습니다.
 
-일반 펌웨어 OTA는 LittleFS 파티션을 덮어쓰지 않습니다. 기존 링버퍼를
-보존하기 위해 **Upload Filesystem Image** 작업은 실행하지 않습니다.
+일반 펌웨어 OTA는 LittleFS 파티션 전체를 덮어쓰지 않습니다. 다만 수온을
+포함하는 새 저장 형식으로 전환한 펌웨어를 처음 실행하면 기존 센서 링버퍼와
+조명 이벤트 파일을 삭제하고 `/sensor_ring_v2.bin`을 생성합니다.
 
-## 호환성 주의사항
+## 측정 및 저장 정책
 
-- `/sensor_ring.bin`의 `SensorRecord` 크기와 필드 순서를 변경하지 않습니다.
-- LittleFS 30일 센서 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
+- BME280 온도·습도·기압과 DS18B20 수온이 모두 정상일 때만 하나의 측정으로
+  인정하여 LittleFS에 저장하고 ThingSpeak로 전송합니다.
+- `/sensor_ring_v2.bin`은 수온을 포함한 24바이트 `SensorRecord`를 사용하며
+  2분 간격으로 30일을 저장합니다.
+- LittleFS 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
 - ESP 로컬 웹 대시보드와 `/api/current`, `/api/history`, `/download.csv`는
   클라우드 대시보드 전환에 따라 제거되었습니다.
-- 기존 `/light_events.bin` 파일은 삭제하지 않지만 더 이상 읽거나 기록하지 않습니다.
+- 기존 `/sensor_ring.bin`과 `/light_events.bin`은 새 형식으로 처음 초기화할 때
+  삭제됩니다.
 - 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
