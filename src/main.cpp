@@ -63,14 +63,16 @@ constexpr bool FORMAT_LITTLEFS_IF_MOUNT_FAILED = false;
 // ================= 30-DAY RING BUFFER =================
 constexpr uint32_t RECORDS_PER_DAY = 24UL * 60UL / 2UL;
 constexpr uint32_t MAX_RECORDS = 30UL * RECORDS_PER_DAY;
-constexpr const char* LOG_FILE_PATH = "/sensor_ring_v2.bin";
+constexpr const char* LOG_FILE_PATH = "/sensor_ring_v3.bin";
 constexpr const char* LEGACY_LOG_FILE_PATH = "/sensor_ring.bin";
+constexpr const char* LEGACY_V2_LOG_FILE_PATH = "/sensor_ring_v2.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
 
 enum RecordFlags : uint8_t {
-  FLAG_SENSOR_VALID = 1 << 0,
-  FLAG_CLOUD_OK     = 1 << 1
+  FLAG_BME280_VALID = 1 << 0,
+  FLAG_WATER_VALID  = 1 << 1,
+  FLAG_CLOUD_OK     = 1 << 2
 };
 
 struct __attribute__((packed)) SensorRecord {
@@ -129,7 +131,8 @@ uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastNtpRequestMs = 0;
 bool ntpRequestActive = false;
 uint32_t consecutiveUploadFailures = 0;
-uint8_t consecutiveSensorFailures = 0;
+uint8_t consecutiveBme280Failures = 0;
+uint32_t consecutiveWaterTemperatureFailures = 0;
 uint32_t droppedUploadJobs = 0;
 bool latestLightStateKnown = false;
 bool latestLightOn = false;
@@ -185,10 +188,13 @@ bool validWaterTemperature(float temperature) {
 }
 
 bool validStoredRecord(const SensorRecord& record) {
+  bool bme280Valid = (record.flags & FLAG_BME280_VALID) != 0;
+  bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
   return record.timestamp >= VALID_EPOCH_MIN &&
-         (record.flags & FLAG_SENSOR_VALID) != 0 &&
-         validBME280Data(record.temperature, record.humidity, record.pressure) &&
-         validWaterTemperature(record.waterTemperature);
+         (bme280Valid || waterValid) &&
+         (!bme280Valid || validBME280Data(
+           record.temperature, record.humidity, record.pressure)) &&
+         (!waterValid || validWaterTemperature(record.waterTemperature));
 }
 
 void serviceNetwork() {
@@ -359,7 +365,7 @@ bool readWaterTemperature(float& temperature) {
   if (validWaterTemperature(temperature)) return true;
   waterTemperatureSensorReady = false;
   temperature = NAN;
-  Serial.println("Invalid DS18B20 water temperature; measurement cycle will be skipped.");
+  Serial.println("Invalid DS18B20 water temperature; water field is unavailable.");
   return false;
 }
 
@@ -377,7 +383,11 @@ bool writeRecordAt(File& file, uint32_t slot, const SensorRecord& record) {
 }
 
 bool removeLegacyStorageFiles() {
-  const char* paths[] = {LEGACY_LOG_FILE_PATH, LEGACY_LIGHT_EVENT_FILE_PATH};
+  const char* paths[] = {
+    LEGACY_LOG_FILE_PATH,
+    LEGACY_V2_LOG_FILE_PATH,
+    LEGACY_LIGHT_EVENT_FILE_PATH
+  };
   for (const char* path : paths) {
     if (!LittleFS.exists(path)) continue;
     if (!LittleFS.remove(path)) {
@@ -533,11 +543,15 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
   if (WiFi.status() != WL_CONNECTED) return -1000;
   int code = -1;
   for (uint8_t attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; ++attempt) {
-    ThingSpeak.setField(1, job.record.temperature);
-    ThingSpeak.setField(2, job.record.humidity);
-    ThingSpeak.setField(3, job.record.pressure);
+    if ((job.record.flags & FLAG_BME280_VALID) != 0) {
+      ThingSpeak.setField(1, job.record.temperature);
+      ThingSpeak.setField(2, job.record.humidity);
+      ThingSpeak.setField(3, job.record.pressure);
+    }
     ThingSpeak.setField(4, static_cast<long>(job.record.rssi));
-    ThingSpeak.setField(5, job.record.waterTemperature);
+    if ((job.record.flags & FLAG_WATER_VALID) != 0) {
+      ThingSpeak.setField(5, job.record.waterTemperature);
+    }
     if (job.lightTelemetryValid) {
       ThingSpeak.setField(6, job.lightOn ? 1 : 0);
       ThingSpeak.setField(7, job.lightPower);
@@ -811,28 +825,45 @@ void performMeasurementCycle() {
   float waterTemperature = NAN;
   bool bme280Valid = readBME280(temperature, humidity, pressure);
   bool waterTemperatureValid = readWaterTemperature(waterTemperature);
-  if (!bme280Valid || !waterTemperatureValid) {
-    consecutiveSensorFailures++;
-    if (!bme280Valid) bmeAddress = 0;
-    Serial.printf("Measurement failed: BME280=%s, DS18B20=%s (%u/%u).\n",
-                  bme280Valid ? "ok" : "failed",
-                  waterTemperatureValid ? "ok" : "failed",
-                  consecutiveSensorFailures, MAX_CONSECUTIVE_SENSOR_FAILURES);
-    if (consecutiveSensorFailures >= MAX_CONSECUTIVE_SENSOR_FAILURES) {
+
+  if (bme280Valid) {
+    consecutiveBme280Failures = 0;
+  } else {
+    bmeAddress = 0;
+    if (consecutiveBme280Failures < UINT8_MAX) consecutiveBme280Failures++;
+    Serial.printf("BME280 measurement failed (%u/%u).\n",
+                  consecutiveBme280Failures, MAX_CONSECUTIVE_SENSOR_FAILURES);
+    if (consecutiveBme280Failures >= MAX_CONSECUTIVE_SENSOR_FAILURES) {
       servicedDelay(1000);
       ESP.restart();
     }
+  }
+
+  if (waterTemperatureValid) {
+    consecutiveWaterTemperatureFailures = 0;
+  } else {
+    if (consecutiveWaterTemperatureFailures < UINT32_MAX) {
+      consecutiveWaterTemperatureFailures++;
+    }
+    Serial.printf("DS18B20 measurement failed (%lu consecutive); continuing with available data.\n",
+                  static_cast<unsigned long>(consecutiveWaterTemperatureFailures));
+  }
+
+  if (!bme280Valid && !waterTemperatureValid) {
+    Serial.println("No primary sensor data available; storage and ThingSpeak upload skipped.");
     return;
   }
-  consecutiveSensorFailures = 0;
 
   int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
 
   Serial.println("--------------------------------");
   Serial.printf("Time: %s\n", formatLocalTime(now).c_str());
-  Serial.printf("Temperature: %.2f C\nHumidity: %.2f %%\nPressure: %.2f hPa\nRSSI: %d dBm\n",
-                temperature, humidity, pressure, rssi);
-  Serial.printf("Water temperature: %.2f C\n", waterTemperature);
+  if (bme280Valid) {
+    Serial.printf("Temperature: %.2f C\nHumidity: %.2f %%\nPressure: %.2f hPa\n",
+                  temperature, humidity, pressure);
+  }
+  if (waterTemperatureValid) Serial.printf("Water temperature: %.2f C\n", waterTemperature);
+  Serial.printf("RSSI: %d dBm\n", rssi);
 
   SensorRecord record{};
   record.timestamp = static_cast<uint32_t>(now);
@@ -841,7 +872,8 @@ void performMeasurementCycle() {
   record.pressure = pressure;
   record.waterTemperature = waterTemperature;
   record.rssi = static_cast<int8_t>(constrain(rssi, -127, 0));
-  record.flags = FLAG_SENSOR_VALID;
+  if (bme280Valid) record.flags |= FLAG_BME280_VALID;
+  if (waterTemperatureValid) record.flags |= FLAG_WATER_VALID;
 
   bool localSaved = false;
   uint32_t writtenSlot = UINT32_MAX;
