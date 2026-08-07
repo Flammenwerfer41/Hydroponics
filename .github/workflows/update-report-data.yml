@@ -1,0 +1,45 @@
+name: Update report data
+
+on:
+  schedule:
+    # 01:30 JST (the previous day is complete); GitHub cron uses UTC.
+    - cron: "30 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-hydroponics-report-data
+  cancel-in-progress: false
+
+jobs:
+  update-report-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate report bridge data
+        run: python scripts/update_report_data.py
+
+      - name: Validate generated JSON
+        run: python -m json.tool docs/report-data.json > /dev/null
+
+      - name: Commit updated report data
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/report-data.json
+          if git diff --cached --quiet; then
+            echo "Report data is unchanged."
+            exit 0
+          fi
+          git commit -m "chore: update hydroponics report data"
+          git push
