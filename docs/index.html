@@ -129,9 +129,9 @@
               <div class="v2-mini"><span>☂</span><strong><span id="outdoorPrecipitation">--</span><small>mm</small></strong></div>
               <div class="v2-mini"><span>≋</span><strong><span id="outdoorWind">--</span><small>m/s</small></strong></div>
             </div>
-            <div class="v2-weather-meta"><span data-i18n="weather.feelsLike">체감</span> <strong><span id="outdoorFeelsLike">--</span>°C</strong></div>
-            <p id="weatherUpdated" data-i18n="weather.loading">JMA 모델 데이터 불러오는 중…</p>
-            <a class="weather-source" href="https://open-meteo.com/" target="_blank" rel="noreferrer">JMA · Open-Meteo</a>
+            <div class="v2-weather-meta"><span data-i18n="weather.feelsLike">계산 체감</span> <strong><span id="outdoorFeelsLike">--</span>°C</strong></div>
+            <p id="weatherUpdated" data-i18n="weather.loading">JMA 관측값 불러오는 중…</p>
+            <a class="weather-source" href="https://www.jma.go.jp/bosai/amedas/" target="_blank" rel="noreferrer">JMA AMeDAS</a>
           </div>
         </div>
       </section>
@@ -279,6 +279,7 @@
   </div>
 
   <noscript data-i18n="noscript">이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
+  <script src="weather-config.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

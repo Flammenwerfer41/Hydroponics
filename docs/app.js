@@ -11,6 +11,7 @@ const JST_TIME_ZONE = "Asia/Tokyo";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LANGUAGE_STORAGE_KEY = "hydroponics-language";
+const WEATHER_API_URL = String(globalThis.HYDROPONICS_CONFIG?.weatherApiUrl || "").trim();
 
 const TRANSLATIONS = {
   ko: {
@@ -75,26 +76,21 @@ const TRANSLATIONS = {
     "light.noData": "SwitchBot 데이터가 없습니다.",
     "weather.kicker": "주변 날씨",
     "weather.checking": "날씨 확인 중",
-    "weather.loading": "JMA 모델 데이터 불러오는 중…",
+    "weather.loading": "JMA 관측값 불러오는 중…",
     "weather.outdoorTemperature": "외부 기온",
-    "weather.feelsLike": "체감",
+    "weather.feelsLike": "계산 체감",
     "weather.precipitation": "강수",
     "weather.wind": "풍속",
-    "weather.source": "JMA 모델 기반 참고값 · Open-Meteo 제공",
-    "weather.updated": "JMA 모델 {time} 기준 · 1시간 자료",
+    "weather.source": "JMA AMeDAS 직접 관측값",
+    "weather.updated": "JMA {time} 관측 · 도쿄/세타가야",
+    "weather.updatedStale": "JMA {time} 관측 · 자료 지연",
     "weather.unavailable": "날씨 확인 불가",
     "weather.retry": "잠시 후 자동으로 다시 시도합니다.",
-    "weather.clear": "맑음",
-    "weather.mainlyClear": "대체로 맑음",
-    "weather.partlyCloudy": "구름 조금",
-    "weather.overcast": "흐림",
-    "weather.fog": "안개",
-    "weather.drizzle": "이슬비",
-    "weather.rain": "비",
-    "weather.snow": "눈",
-    "weather.showers": "소나기",
-    "weather.snowShowers": "눈 소나기",
-    "weather.thunderstorm": "뇌우",
+    "weather.notConfigured": "JMA Worker 주소 설정 필요",
+    "weather.precipitationObserved": "강수 관측",
+    "weather.sunshineObserved": "일조 관측",
+    "weather.dryObserved": "강수 없음",
+    "weather.observationUnknown": "관측 불가",
     "history.kicker": "환경 기록",
     "history.title": "시간에 따른 변화",
     "history.rangeSelector": "그래프 기간",
@@ -215,26 +211,21 @@ const TRANSLATIONS = {
     "light.noData": "SwitchBotのデータがありません。",
     "weather.kicker": "周辺の天気",
     "weather.checking": "天気を確認中",
-    "weather.loading": "JMAモデルデータを読み込み中…",
+    "weather.loading": "JMA観測値を読み込み中…",
     "weather.outdoorTemperature": "外気温",
-    "weather.feelsLike": "体感",
+    "weather.feelsLike": "計算体感温度",
     "weather.precipitation": "降水量",
     "weather.wind": "風速",
-    "weather.source": "JMAモデルによる参考値 · Open-Meteo提供",
-    "weather.updated": "JMAモデル {time}時点 · 1時間値",
+    "weather.source": "JMA AMeDAS直接観測値",
+    "weather.updated": "JMA {time}観測 · 東京/世田谷",
+    "weather.updatedStale": "JMA {time}観測 · データ遅延",
     "weather.unavailable": "天気を取得できません",
     "weather.retry": "しばらくしてから自動的に再試行します。",
-    "weather.clear": "晴れ",
-    "weather.mainlyClear": "おおむね晴れ",
-    "weather.partlyCloudy": "一部曇り",
-    "weather.overcast": "曇り",
-    "weather.fog": "霧",
-    "weather.drizzle": "霧雨",
-    "weather.rain": "雨",
-    "weather.snow": "雪",
-    "weather.showers": "にわか雨",
-    "weather.snowShowers": "にわか雪",
-    "weather.thunderstorm": "雷雨",
+    "weather.notConfigured": "JMA Worker URLの設定が必要です",
+    "weather.precipitationObserved": "降水を観測",
+    "weather.sunshineObserved": "日照あり",
+    "weather.dryObserved": "降水なし",
+    "weather.observationUnknown": "観測不能",
     "history.kicker": "環境履歴",
     "history.title": "時間による変化",
     "history.rangeSelector": "グラフの期間",
@@ -388,7 +379,7 @@ const state = {
   previousStart: 0,
   todayStart: 0,
   weatherController: null,
-  weatherLocation: null,
+  weatherEnabled: false,
   weatherData: null,
   weatherStatus: "loading",
   charts: {}
@@ -590,39 +581,41 @@ async function fetchJson(url, controllerRef) {
   }
 }
 
-function weatherCodeInfo(code) {
-  if (code === 0) return { icon: "☀️", label: t("weather.clear") };
-  if (code === 1) return { icon: "🌤️", label: t("weather.mainlyClear") };
-  if (code === 2) return { icon: "⛅", label: t("weather.partlyCloudy") };
-  if (code === 3) return { icon: "☁️", label: t("weather.overcast") };
-  if (code === 45 || code === 48) return { icon: "🌫️", label: t("weather.fog") };
-  if (code >= 51 && code <= 57) return { icon: "🌦️", label: t("weather.drizzle") };
-  if (code >= 61 && code <= 67) return { icon: "🌧️", label: t("weather.rain") };
-  if (code >= 71 && code <= 77) return { icon: "🌨️", label: t("weather.snow") };
-  if (code >= 80 && code <= 82) return { icon: "🌦️", label: t("weather.showers") };
-  if (code === 85 || code === 86) return { icon: "🌨️", label: t("weather.snowShowers") };
-  if (code >= 95) return { icon: "⛈️", label: t("weather.thunderstorm") };
-  return { icon: "🌡️", label: t("weather.unavailable") };
+function weatherConditionInfo(code) {
+  if (code === "precipitation") {
+    return { icon: "🌧️", label: t("weather.precipitationObserved") };
+  }
+  if (code === "sunshine") {
+    return { icon: "☀️", label: t("weather.sunshineObserved") };
+  }
+  if (code === "dry") {
+    return { icon: "◯", label: t("weather.dryObserved") };
+  }
+  return { icon: "·", label: t("weather.observationUnknown") };
 }
 
 function renderWeather(data) {
   const current = data?.current;
   if (!current) throw new Error("Invalid weather response");
-  const temperature = finiteNumber(current.temperature_2m);
-  const humidity = finiteNumber(current.relative_humidity_2m);
+  const temperature = finiteNumber(current.temperature);
+  const humidity = finiteNumber(current.humidity);
   const feelsLike = finiteNumber(current.apparent_temperature);
-  const precipitation = finiteNumber(current.precipitation);
-  const wind = finiteNumber(current.wind_speed_10m);
-  const weather = weatherCodeInfo(finiteNumber(current.weather_code));
-  const modelTime = typeof current.time === "string"
-    ? current.time.split("T")[1]?.slice(0, 5)
-    : null;
+  const precipitation = finiteNumber(current.precipitation_10m);
+  const wind = finiteNumber(current.wind_speed);
+  const weather = weatherConditionInfo(data?.condition?.code);
+  const observedAt = new Date(data?.observed_at);
+  const observationTime = !Number.isNaN(observedAt.getTime())
+    ? formatJst(observedAt, { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "--:--";
 
   element("weatherIcon").textContent = weather.icon;
   element("weatherDescription").textContent = weather.label;
-  element("weatherUpdated").textContent = t("weather.updated", {
-    time: modelTime || "--:--"
-  });
+  element("weatherUpdated").textContent = t(
+    data?.quality?.stale ? "weather.updatedStale" : "weather.updated",
+    {
+      time: observationTime
+    }
+  );
   element("outdoorTemperature").textContent = fixed(temperature, 1);
   element("outdoorHumidity").textContent =
     Number.isFinite(humidity) ? Math.round(humidity) : "--";
@@ -634,30 +627,18 @@ function renderWeather(data) {
 function renderWeatherUnavailable() {
   element("weatherIcon").textContent = "·";
   element("weatherDescription").textContent = t("weather.unavailable");
-  element("weatherUpdated").textContent = t("weather.retry");
+  element("weatherUpdated").textContent = t(
+    WEATHER_API_URL ? "weather.retry" : "weather.notConfigured"
+  );
 }
 
 async function refreshWeather() {
-  if (document.hidden || !state.weatherLocation) return;
-  const { latitude, longitude } = state.weatherLocation;
-  const parameters = new URLSearchParams({
-    latitude: String(latitude),
-    longitude: String(longitude),
-    current: [
-      "temperature_2m",
-      "relative_humidity_2m",
-      "apparent_temperature",
-      "precipitation",
-      "weather_code",
-      "wind_speed_10m"
-    ].join(","),
-    wind_speed_unit: "ms",
-    timezone: JST_TIME_ZONE
-  });
+  if (document.hidden || !state.weatherEnabled) return;
 
   try {
+    if (!WEATHER_API_URL) throw new Error("JMA Worker URL is not configured");
     const data = await fetchJson(
-      `https://api.open-meteo.com/v1/jma?${parameters}`,
+      WEATHER_API_URL,
       "weatherController"
     );
     state.weatherData = data;
@@ -671,21 +652,10 @@ async function refreshWeather() {
   }
 }
 
-function setWeatherLocation(channel) {
-  const latitude = finiteNumber(channel?.latitude);
-  const longitude = finiteNumber(channel?.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    state.weatherStatus = "error";
-    renderWeatherUnavailable();
-    return;
-  }
-
-  const changed =
-    !state.weatherLocation ||
-    state.weatherLocation.latitude !== latitude ||
-    state.weatherLocation.longitude !== longitude;
-  state.weatherLocation = { latitude, longitude };
-  if (changed || (!state.weatherTimer && !state.weatherController)) {
+function enableWeather() {
+  const wasEnabled = state.weatherEnabled;
+  state.weatherEnabled = true;
+  if (!wasEnabled || (!state.weatherTimer && !state.weatherController)) {
     refreshWeather().finally(() => scheduleWeather());
   }
 }
@@ -883,7 +853,7 @@ async function loadHistory(range, announceLoading = true) {
   try {
     const data = await fetchJson(`${API_BASE}/feeds.json?${config.query}`, "historyController");
     if (sequence !== state.historySequence) return;
-    setWeatherLocation(data.channel);
+    enableWeather();
     const domain = historyDomain(range);
     const earliest = range === "day" ? domain.previousStart : domain.start;
     const points = parseHistory(Array.isArray(data.feeds) ? data.feeds : [])
@@ -1424,7 +1394,7 @@ function scheduleHistory(delay = HISTORY_REFRESH_MS) {
 
 function scheduleWeather(delay = WEATHER_REFRESH_MS) {
   clearTimeout(state.weatherTimer);
-  if (!document.hidden && state.weatherLocation) {
+  if (!document.hidden && state.weatherEnabled) {
     state.weatherTimer = setTimeout(runWeatherLoop, delay);
   }
 }
@@ -1459,7 +1429,7 @@ function stopPolling() {
 function startPolling() {
   refreshCurrent().finally(() => scheduleCurrent());
   loadHistory(state.range).finally(() => scheduleHistory());
-  if (state.weatherLocation) {
+  if (state.weatherEnabled) {
     refreshWeather().finally(() => scheduleWeather());
   }
 }
