@@ -8,6 +8,7 @@
   <title>Hydroponics Monitor</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="scene.css">
 </head>
 <body>
   <div class="page-shell">
@@ -39,122 +40,99 @@
           <div class="updated-at" id="updatedAt" data-i18n="current.loading">최근 데이터 불러오는 중…</div>
         </div>
 
-        <div class="hydro-scene" role="group" aria-label="수경재배 시스템 개요" data-i18n-aria-label="scene.aria">
-          <svg class="hydro-illustration" viewBox="0 0 480 560" aria-hidden="true">
+        <div class="hydro-scene hybrid-scene" role="group" aria-label="수경재배 시스템 개요" data-i18n-aria-label="scene.aria">
+          <svg class="scene-art-v2" viewBox="0 0 1120 620" aria-hidden="true">
             <defs>
-              <linearGradient id="sceneSky" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0" stop-color="var(--scene-sky-top)"/>
-                <stop offset="1" stop-color="var(--scene-sky-bottom)"/>
+              <linearGradient id="v2Water" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#73d5d9" stop-opacity=".9"/>
+                <stop offset="1" stop-color="#279aa7" stop-opacity=".94"/>
               </linearGradient>
-              <linearGradient id="sceneWater" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0" stop-color="var(--water-bright)" stop-opacity=".86"/>
-                <stop offset="1" stop-color="var(--water-deep)" stop-opacity=".92"/>
+              <linearGradient id="v2Leaf" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#70bd8e"/>
+                <stop offset="1" stop-color="#369765"/>
               </linearGradient>
-              <filter id="lampGlow" x="-80%" y="-80%" width="260%" height="260%">
-                <feGaussianBlur stdDeviation="13"/>
+              <filter id="v2Glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="18"/>
               </filter>
             </defs>
-            <rect class="scene-sky" x="8" y="8" width="464" height="544" rx="42" fill="url(#sceneSky)"/>
-            <path class="scene-ground" d="M8 430C118 404 208 443 308 418c62-15 111-11 164 8v126H8Z"/>
-            <path class="scene-wall" d="M398 54v378"/>
-            <path class="scene-outside-hill" d="M399 383c28-28 49-36 73-29v96h-73Z"/>
+            <circle class="scene-orbit orbit-a" cx="552" cy="300" r="220"/>
+            <circle class="scene-orbit orbit-b" cx="552" cy="300" r="168"/>
+            <path class="scene-base" d="M70 534c175-46 325-24 487 2 164 27 319 15 493-22v106H70Z"/>
+            <path class="scene-divider" d="M833 77v455"/>
 
-            <g id="lightIcon" class="scene-lamp">
-              <circle class="lamp-glow" cx="83" cy="117" r="48" filter="url(#lampGlow)"/>
-              <circle class="lamp-core" cx="83" cy="117" r="26"/>
-              <path class="lamp-rays" d="M83 69V51m0 132v-18M35 117H17m132 0h-18M49 83 36 70m94 94-13-13m0-68 13-13m-94 94 13-13"/>
+            <g class="scene-lamp v2-lamp">
+              <circle class="lamp-glow" cx="552" cy="88" r="52" filter="url(#v2Glow)"/>
+              <circle class="lamp-core" cx="552" cy="88" r="28"/>
+              <path class="lamp-rays" d="M552 43V27m0 122v-16m-45-45h-16m122 0h-16m-77-32-12-12m100 100-12-12m0-76 12-12m-100 100 12-12"/>
             </g>
 
-            <g class="plant-canopy">
-              <path class="plant-trunk" d="M243 375c-3-85 3-142 0-211m1 84c-39-22-67-51-79-82m78 54c34-22 53-48 64-79m-63 52c-16-28-19-53-15-80"/>
-              <ellipse class="leaf leaf-a" cx="165" cy="154" rx="50" ry="35" transform="rotate(27 165 154)"/>
-              <ellipse class="leaf leaf-b" cx="136" cy="207" rx="53" ry="34" transform="rotate(-9 136 207)"/>
-              <ellipse class="leaf leaf-c" cx="221" cy="115" rx="47" ry="32" transform="rotate(72 221 115)"/>
-              <ellipse class="leaf leaf-d" cx="306" cy="139" rx="55" ry="34" transform="rotate(-32 306 139)"/>
-              <ellipse class="leaf leaf-e" cx="332" cy="205" rx="57" ry="35" transform="rotate(13 332 205)"/>
-              <ellipse class="leaf leaf-f" cx="251" cy="186" rx="55" ry="38"/>
-              <circle class="leaf-highlight" cx="236" cy="164" r="10"/>
+            <g class="botanical-plant">
+              <path class="botanical-stem" d="M552 390C548 320 520 251 474 207M552 390c-27-49-65-94-106-130m106 130c5-78-5-155-39-219m39 219c11-80 28-148 52-183m-52 183c25-59 53-105 80-132m-80 132c24-37 49-59 76-72m-76 72c-2-83 8-159 26-221"/>
+              <ellipse class="botanical-leaf tone-a" cx="474" cy="207" rx="34" ry="17" transform="rotate(30 474 207)"/>
+              <ellipse class="botanical-leaf tone-b" cx="446" cy="260" rx="35" ry="18" transform="rotate(-12 446 260)"/>
+              <ellipse class="botanical-leaf tone-a" cx="470" cy="314" rx="31" ry="16" transform="rotate(-31 470 314)"/>
+              <ellipse class="botanical-leaf tone-c" cx="513" cy="171" rx="29" ry="15" transform="rotate(64 513 171)"/>
+              <ellipse class="botanical-leaf tone-b" cx="524" cy="235" rx="31" ry="16" transform="rotate(24 524 235)"/>
+              <ellipse class="botanical-leaf tone-a" cx="526" cy="302" rx="32" ry="17" transform="rotate(-10 526 302)"/>
+              <ellipse class="botanical-leaf tone-c" cx="578" cy="169" rx="28" ry="14" transform="rotate(-58 578 169)"/>
+              <ellipse class="botanical-leaf tone-a" cx="604" cy="207" rx="34" ry="17" transform="rotate(-32 604 207)"/>
+              <ellipse class="botanical-leaf tone-b" cx="632" cy="258" rx="35" ry="18" transform="rotate(12 632 258)"/>
+              <ellipse class="botanical-leaf tone-a" cx="628" cy="318" rx="31" ry="16" transform="rotate(28 628 318)"/>
+              <ellipse class="botanical-leaf tone-c" cx="578" cy="279" rx="31" ry="16" transform="rotate(-20 578 279)"/>
+              <ellipse class="botanical-leaf tone-b" cx="552" cy="329" rx="32" ry="17" transform="rotate(8 552 329)"/>
+              <circle class="botanical-bud" cx="552" cy="199" r="17"/>
             </g>
 
-            <g class="reservoir">
-              <path class="pot-shell" d="M154 337h181l-18 169c-2 19-17 33-36 33h-73c-19 0-34-14-36-33Z"/>
-              <path class="pot-water" d="M166 397c45-13 91 12 157-2l-12 109c-2 13-12 22-25 22h-82c-13 0-23-9-25-22Z" fill="url(#sceneWater)"/>
-              <path class="water-line" d="M166 397c45-13 91 12 157-2"/>
-              <path class="root root-a" d="M243 337c-4 38-29 53-28 94s22 48 13 82"/>
-              <path class="root root-b" d="M247 338c8 39 39 47 35 87s-29 50-21 90"/>
-              <path class="root root-c" d="M243 353c-18 29-48 42-43 77"/>
-              <rect class="pot-rim" x="145" y="323" width="199" height="28" rx="14"/>
-              <circle class="water-bubble bubble-a" cx="193" cy="452" r="6"/>
-              <circle class="water-bubble bubble-b" cx="291" cy="479" r="4"/>
-              <circle class="water-bubble bubble-c" cx="277" cy="430" r="3"/>
-            </g>
-
-            <g class="outside-weather-mark">
-              <circle cx="437" cy="99" r="17"/>
-              <path d="M416 141h41M424 157h28"/>
+            <g class="v2-reservoir">
+              <rect class="v2-pot-shell" x="424" y="388" width="256" height="202" rx="38"/>
+              <path class="v2-pot-water" d="M436 474c58-15 120 13 232-3v82c0 14-11 25-25 25H461c-14 0-25-11-25-25Z" fill="url(#v2Water)"/>
+              <path class="v2-water-line" d="M436 474c58-15 120 13 232-3"/>
+              <path class="v2-root" d="M535 435c0 38-29 48-27 84 1 18 12 29 8 45m37-129c3 34 28 45 25 80-2 20-15 31-12 49m9-129c8 28 35 40 37 70"/>
+              <path class="v2-basket" d="M505 407h94l-9 55c-2 10-10 17-20 17h-36c-10 0-18-7-20-17Z"/>
+              <path class="v2-basket-slots" d="M526 419l3 38m22-38v42m22-42-3 38"/>
+              <rect class="v2-pot-rim" x="486" y="390" width="132" height="28" rx="14"/>
+              <circle class="v2-bubble bubble-a" cx="471" cy="527" r="6"/>
+              <circle class="v2-bubble bubble-b" cx="637" cy="543" r="4"/>
+              <circle class="v2-bubble bubble-c" cx="623" cy="506" r="3"/>
             </g>
           </svg>
 
-          <article class="scene-card air-scene-card">
-            <div class="scene-card-heading">
-              <span class="scene-card-icon air-icon" aria-hidden="true">◌</span>
-              <div>
-                <p class="section-kicker" data-i18n="scene.airKicker">잎 주변 공기</p>
-                <h3 data-i18n="scene.airTitle">재배 공간</h3>
-              </div>
-            </div>
-            <p class="measurement-age" id="airUpdated" data-i18n="status.measurementWaiting">측정 대기 중</p>
-            <div class="scene-primary-metrics">
-              <div><span data-i18n="metric.temperature">온도</span><strong><span id="temperature">--</span><small>°C</small></strong><small id="temperatureNote" data-i18n="status.measurementWaiting">측정 대기 중</small></div>
-              <div><span data-i18n="metric.humidity">습도</span><strong><span id="humidity">--</span><small>%</small></strong><small id="humidityNote" data-i18n="status.measurementWaiting">측정 대기 중</small></div>
-              <div><span data-i18n="metric.pressure">기압</span><strong><span id="pressure">--</span><small>hPa</small></strong><small data-i18n="metric.bme280">BME280 센서</small></div>
-            </div>
-            <div class="scene-derived-metrics">
-              <div><span data-i18n="insight.discomfort">불쾌지수</span><strong id="discomfortIndex">--</strong><small id="discomfortNote" data-i18n="status.calculationWaiting">계산 대기 중</small></div>
-              <div><span>VPD</span><strong><span id="vpdValue">--</span><small>kPa</small></strong><small id="vpdNote" data-i18n="insight.vpdReference">식물 증산 참고값</small></div>
-              <div><span data-i18n="insight.dewPoint">이슬점</span><strong><span id="dewPoint">--</span><small>°C</small></strong><small id="dewPointNote" data-i18n="insight.dewReference">결로 참고값</small></div>
-            </div>
-          </article>
+          <div class="v2-light-status" id="lightIcon" aria-labelledby="lightTitle">
+            <span id="lightTitle">LED</span>
+            <strong id="lightState" data-i18n="light.checking">상태 확인 중</strong>
+            <small><span id="lightPower">--</span> W · <span id="lightRuntime">--</span></small>
+            <span class="visually-hidden" id="lightCaption">SwitchBot Plug Mini</span>
+            <span class="visually-hidden" id="lightUpdated" data-i18n="status.measurementWaiting">측정 대기 중</span>
+          </div>
 
-          <article class="scene-card light-scene-card" aria-labelledby="lightTitle">
-            <p class="section-kicker" data-i18n="light.kicker">LED 조명</p>
-            <h3 id="lightTitle"><span id="lightState" data-i18n="light.checking">상태 확인 중</span></h3>
-            <p class="scene-caption" id="lightCaption">SwitchBot Plug Mini</p>
-            <p class="measurement-age" id="lightUpdated" data-i18n="status.measurementWaiting">측정 대기 중</p>
-            <div class="scene-inline-metrics">
-              <div><span data-i18n="light.power">현재 소비전력</span><strong><span id="lightPower">--</span><small>W</small></strong></div>
-              <div><span data-i18n="light.runtimeToday">오늘 가동시간</span><strong id="lightRuntime">--</strong></div>
-            </div>
-          </article>
+          <div class="v2-air-readings">
+            <div class="v2-metric v2-temperature"><span class="v2-icon" aria-hidden="true">♨</span><strong><span id="temperature">--</span><small>°C</small></strong></div>
+            <div class="v2-metric v2-humidity"><span class="v2-icon" aria-hidden="true">◆</span><strong><span id="humidity">--</span><small>%</small></strong></div>
+            <div class="v2-metric v2-pressure"><span class="v2-icon" aria-hidden="true">◉</span><strong><span id="pressure">--</span><small>hPa</small></strong></div>
+            <div class="v2-derived-card v2-di"><span class="v2-derived-icon" aria-hidden="true">❧</span><span>DI<strong id="discomfortIndex">--</strong></span></div>
+            <div class="v2-derived-card v2-vpd"><span class="v2-derived-icon" aria-hidden="true">◒</span><span>VPD<strong><span id="vpdValue">--</span><small>kPa</small></strong></span></div>
+            <div class="v2-derived-card v2-dew"><span class="v2-derived-icon" aria-hidden="true">≋</span><span>DEW<strong><span id="dewPoint">--</span><small>°C</small></strong></span></div>
+            <span class="visually-hidden" id="airUpdated" data-i18n="status.measurementWaiting">측정 대기 중</span>
+            <span class="visually-hidden" id="temperatureNote"></span><span class="visually-hidden" id="humidityNote"></span>
+            <span class="visually-hidden" id="discomfortNote"></span><span class="visually-hidden" id="vpdNote"></span><span class="visually-hidden" id="dewPointNote"></span>
+          </div>
 
-          <article class="scene-card water-scene-card">
-            <div class="water-reading-icon" aria-hidden="true">≈</div>
-            <div>
-              <p class="section-kicker" data-i18n="scene.waterKicker">화분 속 양액</p>
-              <h3 data-i18n="metric.waterTemperature">수온</h3>
-              <div class="water-reading"><span id="waterTemperature">--</span><small>°C</small></div>
-              <p class="scene-caption" id="waterTemperatureNote" data-i18n="scene.waterSensor">DS18B20 · GPIO 21</p>
-              <p class="measurement-age" id="waterUpdated" data-i18n="status.measurementWaiting">측정 대기 중</p>
-            </div>
-          </article>
+          <div class="v2-water-reading"><span class="v2-icon" aria-hidden="true">≈</span><strong><span id="waterTemperature">--</span><small>°C</small></strong></div>
+          <span class="visually-hidden" id="waterTemperatureNote" data-i18n="scene.waterSensor">DS18B20 · GPIO 21</span>
+          <span class="visually-hidden" id="waterUpdated" data-i18n="status.measurementWaiting">측정 대기 중</span>
 
-          <article class="scene-card weather-scene-card" aria-labelledby="weatherTitle">
-            <div class="weather-summary">
-              <div class="weather-icon" id="weatherIcon" aria-hidden="true">·</div>
-              <div>
-                <p class="section-kicker" data-i18n="weather.kicker">주변 날씨</p>
-                <h3 id="weatherTitle"><span id="weatherDescription" data-i18n="weather.checking">날씨 확인 중</span></h3>
-                <p class="scene-caption" id="weatherUpdated" data-i18n="weather.loading">JMA 모델 데이터 불러오는 중…</p>
-              </div>
+          <div class="v2-weather" aria-labelledby="weatherTitle">
+            <div class="v2-weather-heading"><span id="weatherIcon" aria-hidden="true">·</span><strong id="weatherTitle"><span id="weatherDescription" data-i18n="weather.checking">날씨 확인 중</span></strong></div>
+            <div class="v2-weather-grid">
+              <div class="v2-mini"><span>♨</span><strong><span id="outdoorTemperature">--</span><small>°C</small></strong></div>
+              <div class="v2-mini"><span>◆</span><strong><span id="outdoorHumidity">--</span><small>%</small></strong></div>
+              <div class="v2-mini"><span>☂</span><strong><span id="outdoorPrecipitation">--</span><small>mm</small></strong></div>
+              <div class="v2-mini"><span>≋</span><strong><span id="outdoorWind">--</span><small>m/s</small></strong></div>
             </div>
-            <div class="outdoor-reading"><span data-i18n="weather.outdoorTemperature">외부 기온</span><strong><span id="outdoorTemperature">--</span><small>°C</small></strong><small><span data-i18n="weather.feelsLike">체감</span> <span id="outdoorFeelsLike">--</span>°C</small></div>
-            <div class="weather-details">
-              <div><span data-i18n="metric.humidity">습도</span><strong><span id="outdoorHumidity">--</span><small>%</small></strong></div>
-              <div><span data-i18n="weather.precipitation">강수</span><strong><span id="outdoorPrecipitation">--</span><small>mm</small></strong></div>
-              <div><span data-i18n="weather.wind">풍속</span><strong><span id="outdoorWind">--</span><small>m/s</small></strong></div>
-            </div>
-            <a class="weather-source" href="https://open-meteo.com/" target="_blank" rel="noreferrer" data-i18n="weather.source">JMA 모델 기반 참고값 · Open-Meteo 제공</a>
-          </article>
+            <div class="v2-weather-meta"><span data-i18n="weather.feelsLike">체감</span> <strong><span id="outdoorFeelsLike">--</span>°C</strong></div>
+            <p id="weatherUpdated" data-i18n="weather.loading">JMA 모델 데이터 불러오는 중…</p>
+            <a class="weather-source" href="https://open-meteo.com/" target="_blank" rel="noreferrer">JMA · Open-Meteo</a>
+          </div>
         </div>
       </section>
 
