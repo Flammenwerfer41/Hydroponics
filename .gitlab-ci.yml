@@ -1,0 +1,8 @@
+deploy-pages:
+  stage: deploy
+  script:
+    - test -s docs/index.html
+  pages:
+    publish: docs
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
