@@ -1,7 +1,8 @@
 .pio/
 .vscode/
+cloudflare-worker/node_modules/
+cloudflare-worker/.wrangler/
 
 # Device credentials must never be committed.
 include/secrets.h
 secrets.txt
-
