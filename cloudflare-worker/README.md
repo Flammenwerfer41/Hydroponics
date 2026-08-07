@@ -4,6 +4,7 @@ This Worker converts the latest JMA AMeDAS observations into a small JSON respon
 
 - Tokyo (`44132`): temperature, humidity, pressure, wind and sunshine
 - Setagaya (`44126`): local precipitation
+- Tokyo district (`130010`): JMA weather-distribution forecast at three-hour intervals
 - Endpoint: `/v1/current` (the root path returns the same response)
 - Cache: five minutes
 - No API key, KV namespace or secret is required

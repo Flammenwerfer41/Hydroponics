@@ -325,6 +325,64 @@
   text-decoration: none;
 }
 
+.hybrid-scene .forecast-summary {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(67, 113, 96, 0.18);
+}
+
+.hybrid-scene .forecast-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #315e4d;
+  font-size: clamp(0.48rem, 0.62vw, 0.58rem);
+}
+
+.hybrid-scene .forecast-heading > span {
+  color: #84958f;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.hybrid-scene .forecast-periods {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.hybrid-scene .forecast-period {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 2px;
+  padding: 5px 2px;
+  border-radius: 9px;
+  background: rgba(239, 247, 243, 0.7);
+  color: #536e64;
+  line-height: 1.05;
+}
+
+.hybrid-scene .forecast-period time,
+.hybrid-scene .forecast-period small {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(0.38rem, 0.5vw, 0.47rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hybrid-scene .forecast-icon {
+  font-size: clamp(0.8rem, 1.15vw, 1.05rem);
+}
+
+.hybrid-scene .forecast-period strong {
+  color: #173f32;
+  font-size: clamp(0.58rem, 0.78vw, 0.72rem);
+}
+
 @media (max-width: 930px) {
   .hydro-scene.hybrid-scene {
     min-height: 540px;
@@ -462,6 +520,40 @@
 
   .hybrid-scene .v2-weather-meta {
     margin-top: 5px;
+  }
+
+  .hybrid-scene .forecast-summary {
+    margin-top: 5px;
+    padding-top: 5px;
+  }
+
+  .hybrid-scene .forecast-heading {
+    gap: 3px;
+    margin-bottom: 3px;
+    font-size: 0.34rem;
+  }
+
+  .hybrid-scene .forecast-periods {
+    gap: 2px;
+  }
+
+  .hybrid-scene .forecast-period {
+    gap: 1px;
+    padding: 3px 1px;
+    border-radius: 4px;
+  }
+
+  .hybrid-scene .forecast-period time,
+  .hybrid-scene .forecast-period small {
+    font-size: 0.28rem;
+  }
+
+  .hybrid-scene .forecast-icon {
+    font-size: 0.58rem;
+  }
+
+  .hybrid-scene .forecast-period strong {
+    font-size: 0.4rem;
   }
 
   .hybrid-scene .v2-water-reading {

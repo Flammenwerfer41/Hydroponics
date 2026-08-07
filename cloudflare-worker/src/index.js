@@ -1,4 +1,6 @@
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
+const JMA_FORECAST_URL =
+  "https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/130010.json";
 const ENVIRONMENT_STATION = Object.freeze({
   id: "44132",
   name: "東京",
@@ -101,6 +103,55 @@ export function observationCondition(precipitation10m, sunshine10m) {
     return { code: "dry", label_ko: "강수 없음", label_ja: "降水なし" };
   }
   return { code: "unknown", label_ko: "관측 불가", label_ja: "観測不能" };
+}
+
+export function buildForecastPayload(source) {
+  const areaSeries = source?.areaTimeSeries;
+  const pointSeries = source?.pointTimeSeries;
+  if (!Array.isArray(areaSeries?.timeDefines) || !Array.isArray(pointSeries?.timeDefines)) {
+    throw new Error("Tokyo forecast time series is missing");
+  }
+
+  const pointValues = new Map();
+  pointSeries.timeDefines.forEach((definition, index) => {
+    const startsAt = definition?.dateTime;
+    if (!startsAt) return;
+    pointValues.set(startsAt, {
+      temperature: finiteNumber(pointSeries.temperature?.[index]),
+      maximum_temperature: finiteNumber(pointSeries.maxTemperature?.[index]),
+      minimum_temperature: finiteNumber(pointSeries.minTemperature?.[index])
+    });
+  });
+
+  const periods = areaSeries.timeDefines.map((definition, index) => {
+    const startsAt = definition?.dateTime ?? null;
+    const wind = areaSeries.wind?.[index];
+    const point = pointValues.get(startsAt) ?? {};
+    return {
+      starts_at: startsAt,
+      duration: definition?.duration ?? null,
+      weather: typeof areaSeries.weather?.[index] === "string"
+        ? areaSeries.weather[index]
+        : null,
+      temperature: point.temperature ?? null,
+      maximum_temperature: point.maximum_temperature ?? null,
+      minimum_temperature: point.minimum_temperature ?? null,
+      wind_direction: typeof wind?.direction === "string" ? wind.direction : null,
+      wind_speed: finiteNumber(wind?.speed),
+      wind_range: typeof wind?.range === "string" ? wind.range : null
+    };
+  }).filter((period) => period.starts_at);
+
+  if (periods.length === 0) throw new Error("Tokyo forecast contains no periods");
+  return {
+    source: "JMA Weather Distribution Forecast",
+    area_code: String(source.firstAreaCode || "130010"),
+    area_name_ko: "도쿄지방",
+    area_name_ja: "東京地方",
+    point_name: pointSeries.pointNameJP || "東京",
+    published_at: source.reportDateTime ?? null,
+    periods
+  };
 }
 
 function pickPrecipitationRecord(environmentRecord, precipitationRecord) {
@@ -245,8 +296,20 @@ async function currentWeather(request, context) {
     return response;
   }
 
-  const { map, observedAt } = await fetchLatestJmaMap();
+  const observationPromise = fetchLatestJmaMap();
+  const forecastPromise = fetchJson(JMA_FORECAST_URL)
+    .then(buildForecastPayload)
+    .catch((error) => {
+      console.warn("JMA forecast fetch failed", error);
+      return null;
+    });
+  const [{ map, observedAt }, forecast] = await Promise.all([
+    observationPromise,
+    forecastPromise
+  ]);
   const payload = buildWeatherPayload(map, observedAt);
+  payload.forecast = forecast;
+  payload.quality.forecast_available = forecast !== null;
   const response = jsonResponse(payload, 200, {
     "Cache-Control": `public, max-age=${CACHE_SECONDS}`,
     "X-Weather-Cache": "MISS"

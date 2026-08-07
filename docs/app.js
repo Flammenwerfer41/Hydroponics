@@ -91,6 +91,15 @@ const TRANSLATIONS = {
     "weather.sunshineObserved": "일조 관측",
     "weather.dryObserved": "강수 없음",
     "weather.observationUnknown": "관측 불가",
+    "forecast.title": "도쿄지방 예보",
+    "forecast.updated": "{time} 발표",
+    "forecast.unavailable": "예보를 가져올 수 없음",
+    "forecast.clear": "맑음",
+    "forecast.cloudy": "흐림",
+    "forecast.rain": "비",
+    "forecast.snow": "눈",
+    "forecast.mixed": "비 또는 눈",
+    "forecast.unknown": "날씨 미상",
     "history.kicker": "환경 기록",
     "history.title": "시간에 따른 변화",
     "history.rangeSelector": "그래프 기간",
@@ -226,6 +235,15 @@ const TRANSLATIONS = {
     "weather.sunshineObserved": "日照あり",
     "weather.dryObserved": "降水なし",
     "weather.observationUnknown": "観測不能",
+    "forecast.title": "東京地方予報",
+    "forecast.updated": "{time}発表",
+    "forecast.unavailable": "予報を取得できません",
+    "forecast.clear": "晴れ",
+    "forecast.cloudy": "くもり",
+    "forecast.rain": "雨",
+    "forecast.snow": "雪",
+    "forecast.mixed": "雨または雪",
+    "forecast.unknown": "天気不明",
     "history.kicker": "環境履歴",
     "history.title": "時間による変化",
     "history.rangeSelector": "グラフの期間",
@@ -594,6 +612,70 @@ function weatherConditionInfo(code) {
   return { icon: "·", label: t("weather.observationUnknown") };
 }
 
+function forecastConditionInfo(description) {
+  const text = String(description || "");
+  if (text.includes("雨") && text.includes("雪")) {
+    return { icon: "🌨️", label: t("forecast.mixed") };
+  }
+  if (text.includes("雪")) return { icon: "❄️", label: t("forecast.snow") };
+  if (text.includes("雨")) return { icon: "🌧️", label: t("forecast.rain") };
+  if (text.includes("くもり")) return { icon: "☁️", label: t("forecast.cloudy") };
+  if (text.includes("晴")) return { icon: "☀️", label: t("forecast.clear") };
+  return { icon: "·", label: t("forecast.unknown") };
+}
+
+function renderForecast(forecast) {
+  const container = element("forecastPeriods");
+  container.replaceChildren();
+  const now = Date.now();
+  const periods = Array.isArray(forecast?.periods)
+    ? forecast.periods.filter((period) => {
+      const startsAt = new Date(period?.starts_at).getTime();
+      return Number.isFinite(startsAt) && startsAt + 3 * 60 * 60 * 1000 > now;
+    }).slice(0, 4)
+    : [];
+
+  if (periods.length === 0) {
+    element("forecastStatus").textContent = t("forecast.unavailable");
+    return;
+  }
+
+  periods.forEach((period) => {
+    const startsAt = new Date(period.starts_at);
+    const condition = forecastConditionInfo(period.weather);
+    const item = document.createElement("div");
+    item.className = "forecast-period";
+
+    const time = document.createElement("time");
+    time.dateTime = period.starts_at;
+    time.textContent = formatJst(startsAt, {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      hour12: false
+    });
+    const icon = document.createElement("span");
+    icon.className = "forecast-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = condition.icon;
+    const value = document.createElement("strong");
+    const temperature = finiteNumber(period.temperature);
+    value.textContent = Number.isFinite(temperature) ? `${Math.round(temperature)}°` : "--";
+    const label = document.createElement("small");
+    label.textContent = condition.label;
+
+    item.append(time, icon, value, label);
+    container.append(item);
+  });
+
+  const publishedAt = new Date(forecast?.published_at);
+  element("forecastStatus").textContent = !Number.isNaN(publishedAt.getTime())
+    ? t("forecast.updated", {
+      time: formatJst(publishedAt, { hour: "2-digit", minute: "2-digit", hour12: false })
+    })
+    : "JMA";
+}
+
 function renderWeather(data) {
   const current = data?.current;
   if (!current) throw new Error("Invalid weather response");
@@ -622,6 +704,7 @@ function renderWeather(data) {
   element("outdoorFeelsLike").textContent = fixed(feelsLike, 1);
   element("outdoorPrecipitation").textContent = fixed(precipitation, 1);
   element("outdoorWind").textContent = fixed(wind, 1);
+  renderForecast(data.forecast);
 }
 
 function renderWeatherUnavailable() {
@@ -630,6 +713,8 @@ function renderWeatherUnavailable() {
   element("weatherUpdated").textContent = t(
     WEATHER_API_URL ? "weather.retry" : "weather.notConfigured"
   );
+  element("forecastPeriods").replaceChildren();
+  element("forecastStatus").textContent = t("forecast.unavailable");
 }
 
 async function refreshWeather() {

@@ -2,12 +2,39 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildForecastPayload,
   buildWeatherPayload,
   calculateApparentTemperature,
   mapUrlFor,
   observationCondition,
   readJmaField
 } from "../src/index.js";
+
+const SAMPLE_FORECAST = {
+  firstAreaCode: "130010",
+  reportDateTime: "2026-08-07T17:00:00+09:00",
+  areaTimeSeries: {
+    timeDefines: [
+      { dateTime: "2026-08-07T18:00:00+09:00", duration: "PT3H" },
+      { dateTime: "2026-08-07T21:00:00+09:00", duration: "PT3H" }
+    ],
+    weather: ["くもり", "晴れ"],
+    wind: [
+      { direction: "南", speed: 4, range: "10 14" },
+      { direction: "南", speed: 2, range: "3 5" }
+    ]
+  },
+  pointTimeSeries: {
+    pointNameJP: "東京",
+    timeDefines: [
+      { dateTime: "2026-08-07T18:00:00+09:00" },
+      { dateTime: "2026-08-07T21:00:00+09:00" }
+    ],
+    temperature: [30, 28],
+    maxTemperature: ["", ""],
+    minTemperature: ["", ""]
+  }
+};
 
 const SAMPLE_MAP = {
   "44132": {
@@ -101,4 +128,23 @@ test("classifies only directly observed precipitation and sunshine", () => {
 test("calculates an apparent temperature from observations", () => {
   const apparent = calculateApparentTemperature(29.8, 70, 5.7);
   assert.equal(Number.isFinite(apparent), true);
+});
+
+test("combines Tokyo weather, temperature and wind forecast by timestamp", () => {
+  const result = buildForecastPayload(SAMPLE_FORECAST);
+
+  assert.equal(result.area_code, "130010");
+  assert.equal(result.published_at, "2026-08-07T17:00:00+09:00");
+  assert.equal(result.periods.length, 2);
+  assert.deepEqual(result.periods[0], {
+    starts_at: "2026-08-07T18:00:00+09:00",
+    duration: "PT3H",
+    weather: "くもり",
+    temperature: 30,
+    maximum_temperature: null,
+    minimum_temperature: null,
+    wind_direction: "南",
+    wind_speed: 4,
+    wind_range: "10 14"
+  });
 });

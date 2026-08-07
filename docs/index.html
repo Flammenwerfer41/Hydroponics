@@ -8,7 +8,7 @@
   <title>Hydroponics Monitor</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="scene.css?v=2">
+  <link rel="stylesheet" href="scene.css?v=3">
 </head>
 <body>
   <div class="page-shell">
@@ -132,6 +132,13 @@
             <div class="v2-weather-meta"><span data-i18n="weather.feelsLike">계산 체감</span> <strong><span id="outdoorFeelsLike">--</span>°C</strong></div>
             <p id="weatherUpdated" data-i18n="weather.loading">JMA 관측값 불러오는 중…</p>
             <a class="weather-source" href="https://www.jma.go.jp/bosai/amedas/" target="_blank" rel="noreferrer">JMA AMeDAS</a>
+            <div class="forecast-summary" aria-labelledby="forecastTitle">
+              <div class="forecast-heading">
+                <strong id="forecastTitle" data-i18n="forecast.title">도쿄지방 예보</strong>
+                <span id="forecastStatus" data-i18n="weather.loading">불러오는 중…</span>
+              </div>
+              <div class="forecast-periods" id="forecastPeriods"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -280,6 +287,6 @@
 
   <noscript data-i18n="noscript">이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
   <script src="weather-config.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=20260807-forecast" defer></script>
 </body>
 </html>
