@@ -1,13 +1,14 @@
 /*
-  ESP32 + BME280 Hydroponics Environment Logger v8.1.0
+  ESP32 + BME280 Hydroponics Environment Logger v8.2.0
   --------------------------------------------------
   Cloud-focused release. Sensor and SwitchBot values are sent to ThingSpeak for
   the public GitHub Pages dashboard. ArduinoOTA and the existing 30-day LittleFS
   sensor ring remain available, while the ESP-hosted dashboard and HTTP API have
   been removed to reduce firmware size and runtime memory use.
 
-  Water temperature is a required measurement and is stored with the BME280 data
-  in a new 24-byte ring record. Legacy local files are removed during migration.
+  Each ring record carries a stable boot/sequence identity, all available sensor
+  and light telemetry, and independent acknowledgement flags for ThingSpeak and
+  Cloudflare. Legacy local files are removed during migration.
 */
 
 #include <Arduino.h>
@@ -66,29 +67,38 @@ constexpr bool FORMAT_LITTLEFS_IF_MOUNT_FAILED = false;
 // ================= 30-DAY RING BUFFER =================
 constexpr uint32_t RECORDS_PER_DAY = 24UL * 60UL / 2UL;
 constexpr uint32_t MAX_RECORDS = 30UL * RECORDS_PER_DAY;
-constexpr const char* LOG_FILE_PATH = "/sensor_ring_v3.bin";
+constexpr const char* LOG_FILE_PATH = "/sensor_ring_v4.bin";
 constexpr const char* LEGACY_LOG_FILE_PATH = "/sensor_ring.bin";
 constexpr const char* LEGACY_V2_LOG_FILE_PATH = "/sensor_ring_v2.bin";
+constexpr const char* LEGACY_V3_LOG_FILE_PATH = "/sensor_ring_v3.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
+constexpr const char* FIRMWARE_VERSION = "8.2.0";
 
 enum RecordFlags : uint8_t {
-  FLAG_BME280_VALID = 1 << 0,
-  FLAG_WATER_VALID  = 1 << 1,
-  FLAG_CLOUD_OK     = 1 << 2
+  FLAG_BME280_VALID   = 1 << 0,
+  FLAG_WATER_VALID    = 1 << 1,
+  FLAG_LIGHT_VALID    = 1 << 2,
+  FLAG_LIGHT_ON       = 1 << 3,
+  FLAG_THINGSPEAK_OK  = 1 << 4,
+  FLAG_CLOUDFLARE_OK  = 1 << 5
 };
 
 struct __attribute__((packed)) SensorRecord {
   uint32_t timestamp;
+  uint64_t bootId;
+  uint32_t sequence;
   float temperature;
   float humidity;
   float pressure;
   float waterTemperature;
+  float lightPower;
+  uint32_t lightMinutesToday;
   int8_t rssi;
   uint8_t flags;
   uint16_t reserved;
 };
-static_assert(sizeof(SensorRecord) == 24, "SensorRecord must remain 24 bytes");
+static_assert(sizeof(SensorRecord) == 44, "SensorRecord must remain 44 bytes");
 
 struct ThingSpeakJob {
   SensorRecord record;
@@ -144,6 +154,9 @@ uint32_t consecutiveWaterTemperatureFailures = 0;
 uint32_t droppedUploadJobs = 0;
 uint32_t lastThingSpeakWriteMs = 0;
 StoredRecordRef bulkUploadBatch[THINGSPEAK_BULK_BATCH_SIZE]{};
+uint64_t currentBootId = 0;
+uint32_t nextReadingSequence = 0;
+const char* bootResetReason = "unknown";
 bool latestLightStateKnown = false;
 bool latestLightOn = false;
 float latestLightPower = NAN;
@@ -183,6 +196,55 @@ String formatLocalTime(time_t value) {
   return String(buffer);
 }
 
+bool formatUtcTimeToBuffer(time_t value, char* buffer, size_t bufferSize) {
+  if (bufferSize == 0 || !isTimeValid(value)) return false;
+  struct tm utcTime{};
+  gmtime_r(&value, &utcTime);
+  return strftime(buffer, bufferSize, "%Y-%m-%dT%H:%M:%SZ", &utcTime) > 0;
+}
+
+const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    default: return "unknown";
+  }
+}
+
+uint64_t makeBootId() {
+  uint64_t randomValue =
+    (static_cast<uint64_t>(esp_random()) << 32) | esp_random();
+  uint64_t value = randomValue ^ ESP.getEfuseMac();
+  return value == 0 ? 1 : value;
+}
+
+void formatBootId(uint64_t bootId, char* buffer, size_t bufferSize) {
+  snprintf(buffer, bufferSize, "%08lx%08lx",
+           static_cast<unsigned long>(bootId >> 32),
+           static_cast<unsigned long>(bootId & 0xFFFFFFFFULL));
+}
+
+void formatReadingId(const SensorRecord& record, char* buffer, size_t bufferSize) {
+  char bootId[17];
+  formatBootId(record.bootId, bootId, sizeof(bootId));
+  snprintf(buffer, bufferSize, "%s:%lu", bootId,
+           static_cast<unsigned long>(record.sequence));
+}
+
+bool sameRecordIdentity(const SensorRecord& left, const SensorRecord& right) {
+  return left.timestamp == right.timestamp &&
+         left.bootId == right.bootId &&
+         left.sequence == right.sequence;
+}
+
 bool validBME280Data(float temperature, float humidity, float pressure) {
   return isfinite(temperature) && isfinite(humidity) && isfinite(pressure) &&
          temperature >= -40.0f && temperature <= 85.0f &&
@@ -197,14 +259,23 @@ bool validWaterTemperature(float temperature) {
          temperature >= -55.0f && temperature <= 125.0f;
 }
 
+bool validLightTelemetry(const SensorRecord& record) {
+  return isfinite(record.lightPower) &&
+         record.lightPower >= 0.0f && record.lightPower <= 5000.0f &&
+         record.lightMinutesToday <= 1440UL;
+}
+
 bool validStoredRecord(const SensorRecord& record) {
   bool bme280Valid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
+  bool lightValid = (record.flags & FLAG_LIGHT_VALID) != 0;
   return record.timestamp >= VALID_EPOCH_MIN &&
+         record.bootId != 0 &&
          (bme280Valid || waterValid) &&
          (!bme280Valid || validBME280Data(
            record.temperature, record.humidity, record.pressure)) &&
-         (!waterValid || validWaterTemperature(record.waterTemperature));
+         (!waterValid || validWaterTemperature(record.waterTemperature)) &&
+         (!lightValid || validLightTelemetry(record));
 }
 
 void serviceNetwork() {
@@ -396,6 +467,7 @@ bool removeLegacyStorageFiles() {
   const char* paths[] = {
     LEGACY_LOG_FILE_PATH,
     LEGACY_V2_LOG_FILE_PATH,
+    LEGACY_V3_LOG_FILE_PATH,
     LEGACY_LIGHT_EVENT_FILE_PATH
   };
   for (const char* path : paths) {
@@ -416,7 +488,7 @@ bool ensureRingFile() {
   if (file) file.close();
   if (currentSize == REQUIRED_LOG_BYTES) return true;
 
-  Serial.printf("Creating water-aware ring file: %u bytes\n",
+  Serial.printf("Creating identified dual-destination ring file: %u bytes\n",
                 static_cast<unsigned>(REQUIRED_LOG_BYTES));
   file = LittleFS.open(LOG_FILE_PATH, "w");
   if (!file) return false;
@@ -525,8 +597,16 @@ bool appendRecord(const SensorRecord& record, uint32_t& writtenSlot) {
   return ok;
 }
 
-bool markRecordCloudOk(uint32_t slot, uint32_t expectedTimestamp) {
-  if (!filesystemReady || slot >= MAX_RECORDS) return false;
+bool validDestinationFlag(uint8_t flag) {
+  return flag == FLAG_THINGSPEAK_OK || flag == FLAG_CLOUDFLARE_OK;
+}
+
+bool markRecordDestinationOk(
+    uint32_t slot,
+    const SensorRecord& expected,
+    uint8_t destinationFlag) {
+  if (!filesystemReady || slot >= MAX_RECORDS ||
+      !validDestinationFlag(destinationFlag)) return false;
   if (!takeMutex(fsMutex, pdMS_TO_TICKS(1000))) return false;
 
   File file = LittleFS.open(LOG_FILE_PATH, "r+");
@@ -536,8 +616,8 @@ bool markRecordCloudOk(uint32_t slot, uint32_t expectedTimestamp) {
   }
   SensorRecord record{};
   bool ok = readRecordAt(file, slot, record);
-  if (ok && validStoredRecord(record) && record.timestamp == expectedTimestamp) {
-    record.flags |= FLAG_CLOUD_OK;
+  if (ok && validStoredRecord(record) && sameRecordIdentity(record, expected)) {
+    record.flags |= destinationFlag;
     ok = writeRecordAt(file, slot, record);
   } else {
     ok = false;
@@ -548,8 +628,12 @@ bool markRecordCloudOk(uint32_t slot, uint32_t expectedTimestamp) {
   return ok;
 }
 
-size_t collectPendingCloudRecords(StoredRecordRef* records, size_t capacity) {
-  if (!filesystemReady || records == nullptr || capacity == 0) return 0;
+size_t collectPendingDestinationRecords(
+    StoredRecordRef* records,
+    size_t capacity,
+    uint8_t destinationFlag) {
+  if (!filesystemReady || records == nullptr || capacity == 0 ||
+      !validDestinationFlag(destinationFlag)) return 0;
   if (!takeMutex(fsMutex, pdMS_TO_TICKS(2000))) return 0;
 
   File file = LittleFS.open(LOG_FILE_PATH, "r");
@@ -566,15 +650,7 @@ size_t collectPendingCloudRecords(StoredRecordRef* records, size_t capacity) {
     uint32_t slot = (startSlot + offset) % MAX_RECORDS;
     SensorRecord record{};
     if (!readRecordAt(file, slot, record)) break;
-    if (validStoredRecord(record) && (record.flags & FLAG_CLOUD_OK) == 0) {
-      bool duplicateTimestamp = false;
-      for (size_t index = 0; index < count; ++index) {
-        if (records[index].record.timestamp == record.timestamp) {
-          duplicateTimestamp = true;
-          break;
-        }
-      }
-      if (duplicateTimestamp) continue;
+    if (validStoredRecord(record) && (record.flags & destinationFlag) == 0) {
       records[count].record = record;
       records[count].slot = slot;
       count++;
@@ -587,8 +663,12 @@ size_t collectPendingCloudRecords(StoredRecordRef* records, size_t capacity) {
   return count;
 }
 
-size_t markRecordsCloudOk(const StoredRecordRef* records, size_t count) {
-  if (!filesystemReady || records == nullptr || count == 0) return 0;
+size_t markRecordsDestinationOk(
+    const StoredRecordRef* records,
+    size_t count,
+    uint8_t destinationFlag) {
+  if (!filesystemReady || records == nullptr || count == 0 ||
+      !validDestinationFlag(destinationFlag)) return 0;
   if (!takeMutex(fsMutex, pdMS_TO_TICKS(2000))) return 0;
 
   File file = LittleFS.open(LOG_FILE_PATH, "r+");
@@ -602,9 +682,9 @@ size_t markRecordsCloudOk(const StoredRecordRef* records, size_t count) {
     SensorRecord stored{};
     bool matches = readRecordAt(file, records[index].slot, stored) &&
                    validStoredRecord(stored) &&
-                   stored.timestamp == records[index].record.timestamp;
+                   sameRecordIdentity(stored, records[index].record);
     if (!matches) continue;
-    stored.flags |= FLAG_CLOUD_OK;
+    stored.flags |= destinationFlag;
     if (writeRecordAt(file, records[index].slot, stored)) marked++;
   }
   file.flush();
@@ -676,6 +756,14 @@ bool appendBulkRecordJson(String& payload, const SensorRecord& record, bool firs
     payload += F(",\"field5\":");
     payload += String(record.waterTemperature, 3);
   }
+  if ((record.flags & FLAG_LIGHT_VALID) != 0) {
+    payload += F(",\"field6\":");
+    payload += (record.flags & FLAG_LIGHT_ON) != 0 ? '1' : '0';
+    payload += F(",\"field7\":");
+    payload += String(record.lightPower, 3);
+    payload += F(",\"field8\":");
+    payload += String(record.lightMinutesToday);
+  }
   payload += '}';
   return true;
 }
@@ -724,8 +812,8 @@ int bulkUploadToThingSpeak(const StoredRecordRef* records, size_t count) {
 }
 
 void recoverPendingThingSpeakRecords() {
-  size_t count = collectPendingCloudRecords(
-    bulkUploadBatch, THINGSPEAK_BULK_BATCH_SIZE);
+  size_t count = collectPendingDestinationRecords(
+    bulkUploadBatch, THINGSPEAK_BULK_BATCH_SIZE, FLAG_THINGSPEAK_OK);
   if (count == 0) return;
 
   Serial.printf("ThingSpeak recovery: uploading %u stored records.\n",
@@ -736,7 +824,8 @@ void recoverPendingThingSpeakRecords() {
     return;
   }
 
-  size_t marked = markRecordsCloudOk(bulkUploadBatch, count);
+  size_t marked = markRecordsDestinationOk(
+    bulkUploadBatch, count, FLAG_THINGSPEAK_OK);
   Serial.printf("ThingSpeak recovery succeeded: %u uploaded, %u marked complete.\n",
                 static_cast<unsigned>(count), static_cast<unsigned>(marked));
   if (marked != count) {
@@ -759,11 +848,11 @@ void thingSpeakTask(void* parameter) {
     }
 
     if (cloudOk && job.slot < MAX_RECORDS &&
-        !markRecordCloudOk(job.slot, job.record.timestamp)) {
-      Serial.println("Failed to update local cloud-success flag.");
+        !markRecordDestinationOk(job.slot, job.record, FLAG_THINGSPEAK_OK)) {
+      Serial.println("Failed to update local ThingSpeak acknowledgement flag.");
     }
     if (!cloudOk) {
-      Serial.printf("Cloud upload failed; local record retained. Consecutive failures: %lu\n",
+      Serial.printf("ThingSpeak upload failed; local record retained. Consecutive failures: %lu\n",
                     static_cast<unsigned long>(consecutiveUploadFailures));
     } else {
       recoverPendingThingSpeakRecords();
@@ -795,24 +884,34 @@ bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
   ThingSpeakJob job{};
   job.record = record;
   job.slot = slot;
-  if (takeMutex(stateMutex, portMAX_DELAY)) {
-    job.lightTelemetryValid =
-      latestLightStateKnown &&
-      latestSwitchBotHttpCode == 200 &&
-      latestSwitchBotStatusCode == 100 &&
-      isfinite(latestLightPower);
-    if (job.lightTelemetryValid) {
-      job.lightOn = latestLightOn;
-      job.lightPower = latestLightPower;
-      job.lightMinutesToday = latestLightMinutesToday;
-    }
-    giveMutex(stateMutex);
+  job.lightTelemetryValid = (record.flags & FLAG_LIGHT_VALID) != 0;
+  if (job.lightTelemetryValid) {
+    job.lightOn = (record.flags & FLAG_LIGHT_ON) != 0;
+    job.lightPower = record.lightPower;
+    job.lightMinutesToday = record.lightMinutesToday;
   }
   if (xQueueSend(thingSpeakQueue, &job, 0) == pdTRUE) return true;
   droppedUploadJobs++;
   Serial.printf("ThingSpeak queue full; dropped upload job. Total dropped: %lu\n",
                 static_cast<unsigned long>(droppedUploadJobs));
   return false;
+}
+
+void snapshotLightTelemetry(SensorRecord& record) {
+  if (!takeMutex(stateMutex, portMAX_DELAY)) return;
+  bool valid = latestLightStateKnown &&
+               latestSwitchBotHttpCode == 200 &&
+               latestSwitchBotStatusCode == 100 &&
+               isfinite(latestLightPower) &&
+               latestLightPower >= 0.0f && latestLightPower <= 5000.0f &&
+               latestLightMinutesToday <= 1440UL;
+  if (valid) {
+    record.flags |= FLAG_LIGHT_VALID;
+    if (latestLightOn) record.flags |= FLAG_LIGHT_ON;
+    record.lightPower = latestLightPower;
+    record.lightMinutesToday = latestLightMinutesToday;
+  }
+  giveMutex(stateMutex);
 }
 
 // ================= SWITCHBOT TASK =================
@@ -1027,7 +1126,7 @@ void performMeasurementCycle() {
   }
 
   if (!bme280Valid && !waterTemperatureValid) {
-    Serial.println("No primary sensor data available; storage and ThingSpeak upload skipped.");
+    Serial.println("No primary sensor data available; storage and cloud upload skipped.");
     return;
   }
 
@@ -1044,6 +1143,8 @@ void performMeasurementCycle() {
 
   SensorRecord record{};
   record.timestamp = static_cast<uint32_t>(now);
+  record.bootId = currentBootId;
+  record.sequence = nextReadingSequence++;
   record.temperature = temperature;
   record.humidity = humidity;
   record.pressure = pressure;
@@ -1051,6 +1152,7 @@ void performMeasurementCycle() {
   record.rssi = static_cast<int8_t>(constrain(rssi, -127, 0));
   if (bme280Valid) record.flags |= FLAG_BME280_VALID;
   if (waterTemperatureValid) record.flags |= FLAG_WATER_VALID;
+  snapshotLightTelemetry(record);
 
   bool localSaved = false;
   uint32_t writtenSlot = UINT32_MAX;
@@ -1074,7 +1176,12 @@ void performMeasurementCycle() {
 void setup() {
   Serial.begin(115200);
   delay(800);
-  Serial.println("\nESP32 hydroponics logger v8.1.0 starting.");
+  Serial.printf("\nESP32 hydroponics logger v%s starting.\n", FIRMWARE_VERSION);
+  currentBootId = makeBootId();
+  bootResetReason = resetReasonName(esp_reset_reason());
+  char bootId[17];
+  formatBootId(currentBootId, bootId, sizeof(bootId));
+  Serial.printf("Boot ID: %s, reset reason: %s\n", bootId, bootResetReason);
 
   fsMutex = xSemaphoreCreateMutex();
   stateMutex = xSemaphoreCreateMutex();
