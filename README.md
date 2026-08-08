@@ -65,6 +65,9 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
 
+클라우드 저장, 재배일지, 사진, 관리자 기능과 장래 확장 계획은
+[Hydroponics Cloud Platform Roadmap](ROADMAP.md)에 정리되어 있습니다.
+
 ## 라이선스
 
 이 프로젝트는 [MIT License](LICENSE)로 배포됩니다.
