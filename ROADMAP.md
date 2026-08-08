@@ -4,6 +4,9 @@
 확장하기 위한 방향을 정리한다. 구현 순서는 안정적인 측정과 복구를 우선하며,
 ThingSpeak를 중단하기 전까지 기존 경로와 새 Cloudflare 경로를 병행한다.
 
+실행 가능한 작업, 우선순위와 진행 상태는
+[Hydroponics Cloud Platform GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)에서 관리한다.
+
 ## 목표
 
 - ESP32가 인터넷 단절 중에도 측정과 안전 동작을 지속한다.
