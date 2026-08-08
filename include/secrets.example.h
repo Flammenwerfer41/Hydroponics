@@ -9,10 +9,14 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 constexpr unsigned long THINGSPEAK_CHANNEL_ID = 0;
 const char* THINGSPEAK_WRITE_API_KEY = "YOUR_THINGSPEAK_WRITE_API_KEY";
 
+// Cloudflare D1 ingestion. The URL is public; the device token is secret.
+#define CLOUDFLARE_INGEST_URL \
+  "https://hydroponics-jma-weather.woosukang.workers.dev/v1/readings"
+#define CLOUDFLARE_DEVICE_TOKEN ""
+
 const char* OTA_HOSTNAME = "hydroponics-sensor";
 const char* OTA_PASSWORD = "YOUR_OTA_PASSWORD";
 
 const char* SWITCHBOT_TOKEN = "YOUR_SWITCHBOT_TOKEN";
 const char* SWITCHBOT_SECRET = "YOUR_SWITCHBOT_SECRET";
 const char* SWITCHBOT_DEVICE_ID = "YOUR_SWITCHBOT_DEVICE_ID";
-

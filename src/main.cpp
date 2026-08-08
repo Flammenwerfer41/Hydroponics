@@ -1,10 +1,10 @@
 /*
   ESP32 + BME280 Hydroponics Environment Logger v8.2.0
   --------------------------------------------------
-  Cloud-focused release. Sensor and SwitchBot values are sent to ThingSpeak for
-  the public GitHub Pages dashboard. ArduinoOTA and the existing 30-day LittleFS
-  sensor ring remain available, while the ESP-hosted dashboard and HTTP API have
-  been removed to reduce firmware size and runtime memory use.
+  Cloud-focused release. Sensor and SwitchBot values are sent to ThingSpeak and
+  Cloudflare in parallel. ArduinoOTA and the 30-day LittleFS sensor ring remain
+  available, while the ESP-hosted dashboard and HTTP API stay removed to reduce
+  firmware size and runtime memory use.
 
   Each ring record carries a stable boot/sequence identity, all available sensor
   and light telemetry, and independent acknowledgement flags for ThingSpeak and
@@ -35,6 +35,32 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 
+#ifndef CLOUDFLARE_INGEST_URL
+#define CLOUDFLARE_INGEST_URL \
+  "https://hydroponics-jma-weather.woosukang.workers.dev/v1/readings"
+#endif
+
+#ifndef CLOUDFLARE_DEVICE_TOKEN
+#define CLOUDFLARE_DEVICE_TOKEN ""
+#endif
+
+// Current workers.dev chain root. TLS verification deliberately fails closed if
+// Cloudflare changes to another trust chain; pending records remain in LittleFS.
+const char CLOUDFLARE_ROOT_CA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIB3DCCAYOgAwIBAgINAgPlfvU/k/2lCSGypjAKBggqhkjOPQQDAjBQMSQwIgYD
+VQQLExtHbG9iYWxTaWduIEVDQyBSb290IENBIC0gUjQxEzARBgNVBAoTCkdsb2Jh
+bFNpZ24xEzARBgNVBAMTCkdsb2JhbFNpZ24wHhcNMTIxMTEzMDAwMDAwWhcNMzgw
+MTE5MDMxNDA3WjBQMSQwIgYDVQQLExtHbG9iYWxTaWduIEVDQyBSb290IENBIC0g
+UjQxEzARBgNVBAoTCkdsb2JhbFNpZ24xEzARBgNVBAMTCkdsb2JhbFNpZ24wWTAT
+BgcqhkjOPQIBBggqhkjOPQMBBwNCAAS4xnnTj2wlDp8uORkcA6SumuU5BwkWymOx
+uYb4ilfBV85C+nOh92VC/x7BALJucw7/xyHlGKSq2XE/qNS5zowdo0IwQDAOBgNV
+HQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUVLB7rUW44kB/
++wpu+74zyTyjhNUwCgYIKoZIzj0EAwIDRwAwRAIgIk90crlgr/HmnKAWBVBfw147
+bmF0774BxL4YSFlhgjICICadVGNA3jdgUM/I2O2dgq43mLyjj0xMqTQrbO/7lZsm
+-----END CERTIFICATE-----
+)EOF";
+
 // ================= USER SETTINGS =================
 // SwitchBot OpenAPI v1.1 credentials. Keep TOKEN and SECRET private.
 const char* TZ_INFO = "JST-9";
@@ -56,9 +82,16 @@ constexpr uint32_t THINGSPEAK_TASK_STACK = 8192;
 constexpr uint8_t THINGSPEAK_BULK_BATCH_SIZE = 40;
 constexpr uint32_t THINGSPEAK_MIN_WRITE_INTERVAL_MS = 16000UL;
 constexpr uint32_t THINGSPEAK_BULK_HTTP_TIMEOUT_MS = 15000UL;
+constexpr uint8_t CLOUDFLARE_BULK_BATCH_SIZE = 15;
+constexpr uint32_t CLOUDFLARE_HTTP_TIMEOUT_MS = 15000UL;
+constexpr uint32_t CLOUDFLARE_BACKOFF_INITIAL_MS = 30000UL;
+constexpr uint32_t CLOUDFLARE_BACKOFF_MAX_MS = 30UL * 60UL * 1000UL;
+constexpr uint32_t CLOUDFLARE_BACKOFF_JITTER_MS = 5000UL;
 constexpr uint8_t SWITCHBOT_QUEUE_LENGTH = 1;
 constexpr uint32_t SWITCHBOT_TASK_STACK = 8192;
 constexpr uint32_t SWITCHBOT_HTTP_TIMEOUT_MS = 10000UL;
+static_assert(CLOUDFLARE_BULK_BATCH_SIZE <= THINGSPEAK_BULK_BATCH_SIZE,
+              "Shared recovery buffer is too small");
 
 // Keep false for an existing installation. Setting true may erase LittleFS if
 // mounting fails, so use it only once for a genuinely new/unformatted partition.
@@ -74,6 +107,7 @@ constexpr const char* LEGACY_V3_LOG_FILE_PATH = "/sensor_ring_v3.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
 constexpr const char* FIRMWARE_VERSION = "8.2.0";
+constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (2UL << 8);
 
 enum RecordFlags : uint8_t {
   FLAG_BME280_VALID   = 1 << 0,
@@ -88,6 +122,7 @@ struct __attribute__((packed)) SensorRecord {
   uint32_t timestamp;
   uint64_t bootId;
   uint32_t sequence;
+  uint32_t firmwareVersion;
   float temperature;
   float humidity;
   float pressure;
@@ -96,9 +131,10 @@ struct __attribute__((packed)) SensorRecord {
   uint32_t lightMinutesToday;
   int8_t rssi;
   uint8_t flags;
-  uint16_t reserved;
+  uint8_t resetReason;
+  uint8_t reserved;
 };
-static_assert(sizeof(SensorRecord) == 44, "SensorRecord must remain 44 bytes");
+static_assert(sizeof(SensorRecord) == 48, "SensorRecord must remain 48 bytes");
 
 struct ThingSpeakJob {
   SensorRecord record;
@@ -154,9 +190,12 @@ uint32_t consecutiveWaterTemperatureFailures = 0;
 uint32_t droppedUploadJobs = 0;
 uint32_t lastThingSpeakWriteMs = 0;
 StoredRecordRef bulkUploadBatch[THINGSPEAK_BULK_BATCH_SIZE]{};
+uint32_t consecutiveCloudflareFailures = 0;
+uint32_t cloudflareRecoveryBackoffMs = 0;
+uint32_t nextCloudflareRecoveryMs = 0;
 uint64_t currentBootId = 0;
 uint32_t nextReadingSequence = 0;
-const char* bootResetReason = "unknown";
+esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 bool latestLightStateKnown = false;
 bool latestLightOn = false;
 float latestLightPower = NAN;
@@ -239,6 +278,13 @@ void formatReadingId(const SensorRecord& record, char* buffer, size_t bufferSize
            static_cast<unsigned long>(record.sequence));
 }
 
+void formatFirmwareVersion(uint32_t version, char* buffer, size_t bufferSize) {
+  snprintf(buffer, bufferSize, "%lu.%lu.%lu",
+           static_cast<unsigned long>((version >> 16) & 0xFFU),
+           static_cast<unsigned long>((version >> 8) & 0xFFU),
+           static_cast<unsigned long>(version & 0xFFU));
+}
+
 bool sameRecordIdentity(const SensorRecord& left, const SensorRecord& right) {
   return left.timestamp == right.timestamp &&
          left.bootId == right.bootId &&
@@ -271,6 +317,7 @@ bool validStoredRecord(const SensorRecord& record) {
   bool lightValid = (record.flags & FLAG_LIGHT_VALID) != 0;
   return record.timestamp >= VALID_EPOCH_MIN &&
          record.bootId != 0 &&
+         record.firmwareVersion != 0 &&
          (bme280Valid || waterValid) &&
          (!bme280Valid || validBME280Data(
            record.temperature, record.humidity, record.pressure)) &&
@@ -693,7 +740,207 @@ size_t markRecordsDestinationOk(
   return marked;
 }
 
-// ================= THINGSPEAK TASK =================
+// ================= CLOUDFLARE INGESTION =================
+bool cloudflareConfigured() {
+  return strncmp(CLOUDFLARE_INGEST_URL, "https://", 8) == 0 &&
+         strlen(CLOUDFLARE_DEVICE_TOKEN) >= 24;
+}
+
+bool deadlineReached(uint32_t deadline) {
+  return deadline == 0 || static_cast<int32_t>(millis() - deadline) >= 0;
+}
+
+void resetCloudflareBackoff() {
+  cloudflareRecoveryBackoffMs = 0;
+  nextCloudflareRecoveryMs = 0;
+}
+
+void scheduleCloudflareBackoff() {
+  if (cloudflareRecoveryBackoffMs == 0) {
+    cloudflareRecoveryBackoffMs = CLOUDFLARE_BACKOFF_INITIAL_MS;
+  } else {
+    uint64_t doubled = static_cast<uint64_t>(cloudflareRecoveryBackoffMs) * 2ULL;
+    cloudflareRecoveryBackoffMs = doubled > CLOUDFLARE_BACKOFF_MAX_MS
+      ? CLOUDFLARE_BACKOFF_MAX_MS
+      : static_cast<uint32_t>(doubled);
+  }
+  uint32_t jitter = CLOUDFLARE_BACKOFF_JITTER_MS == 0
+    ? 0
+    : esp_random() % CLOUDFLARE_BACKOFF_JITTER_MS;
+  nextCloudflareRecoveryMs = millis() + cloudflareRecoveryBackoffMs + jitter;
+  Serial.printf("Cloudflare recovery backoff: %lu ms.\n",
+                static_cast<unsigned long>(cloudflareRecoveryBackoffMs + jitter));
+}
+
+void appendJsonNumberOrNull(String& payload, float value, bool valid, uint8_t digits = 3) {
+  if (valid && isfinite(value)) {
+    payload += String(value, static_cast<unsigned int>(digits));
+  }
+  else payload += F("null");
+}
+
+bool appendCloudflareReadingJson(String& payload, const SensorRecord& record) {
+  if (!validStoredRecord(record)) return false;
+  char measuredAt[25];
+  if (!formatUtcTimeToBuffer(record.timestamp, measuredAt, sizeof(measuredAt))) return false;
+  char bootId[17];
+  char readingId[40];
+  char firmwareVersion[16];
+  formatBootId(record.bootId, bootId, sizeof(bootId));
+  formatReadingId(record, readingId, sizeof(readingId));
+  formatFirmwareVersion(record.firmwareVersion, firmwareVersion, sizeof(firmwareVersion));
+
+  bool bmeValid = (record.flags & FLAG_BME280_VALID) != 0;
+  bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
+  bool lightValid = (record.flags & FLAG_LIGHT_VALID) != 0;
+  bool rssiValid = record.rssi < 0;
+
+  payload += F("{\"schema_version\":1,\"reading_id\":\"");
+  payload += readingId;
+  payload += F("\",\"boot_id\":\"");
+  payload += bootId;
+  payload += F("\",\"sequence\":");
+  payload += String(record.sequence);
+  payload += F(",\"measured_at\":\"");
+  payload += measuredAt;
+  payload += F("\",\"firmware_version\":\"");
+  payload += firmwareVersion;
+  payload += F("\",\"reset_reason\":\"");
+  payload += resetReasonName(static_cast<esp_reset_reason_t>(record.resetReason));
+  payload += F("\",\"values\":{\"air_temperature\":");
+  appendJsonNumberOrNull(payload, record.temperature, bmeValid);
+  payload += F(",\"humidity\":");
+  appendJsonNumberOrNull(payload, record.humidity, bmeValid);
+  payload += F(",\"pressure\":");
+  appendJsonNumberOrNull(payload, record.pressure, bmeValid);
+  payload += F(",\"wifi_rssi\":");
+  if (rssiValid) payload += String(static_cast<int>(record.rssi));
+  else payload += F("null");
+  payload += F(",\"water_temperature\":");
+  appendJsonNumberOrNull(payload, record.waterTemperature, waterValid);
+  payload += F(",\"light_status\":");
+  if (lightValid) payload += (record.flags & FLAG_LIGHT_ON) != 0 ? '1' : '0';
+  else payload += F("null");
+  payload += F(",\"light_power\":");
+  appendJsonNumberOrNull(payload, record.lightPower, lightValid);
+  payload += F(",\"light_uptime\":");
+  if (lightValid) payload += String(record.lightMinutesToday);
+  else payload += F("null");
+  payload += F("}}");
+  return true;
+}
+
+bool responseAcknowledgesReading(const String& response, const SensorRecord& record) {
+  char readingId[40];
+  formatReadingId(record, readingId, sizeof(readingId));
+  String quotedReadingId = String('"') + readingId + '"';
+  int readingPosition = response.indexOf(quotedReadingId);
+  if (readingPosition < 0) return false;
+  int statusPosition = response.indexOf(F("\"status\""), readingPosition + quotedReadingId.length());
+  if (statusPosition < 0) return false;
+  int nextReadingPosition = response.indexOf(F("\"reading_id\""), readingPosition + quotedReadingId.length());
+  if (nextReadingPosition >= 0 && nextReadingPosition < statusPosition) return false;
+  int colon = response.indexOf(':', statusPosition);
+  int valueStart = colon >= 0 ? response.indexOf('"', colon + 1) : -1;
+  int valueEnd = valueStart >= 0 ? response.indexOf('"', valueStart + 1) : -1;
+  if (valueStart < 0 || valueEnd < 0) return false;
+  String status = response.substring(valueStart + 1, valueEnd);
+  return status == "accepted" || status == "duplicate";
+}
+
+int postCloudflarePayload(const String& url, const String& payload, String& response) {
+  if (!cloudflareConfigured() || WiFi.status() != WL_CONNECTED || otaInProgress) return -1000;
+  WiFiClientSecure client;
+  client.setCACert(CLOUDFLARE_ROOT_CA);
+  HTTPClient http;
+  if (!http.begin(client, url)) {
+    Serial.println("Cloudflare HTTP begin failed.");
+    return -1001;
+  }
+  http.setTimeout(CLOUDFLARE_HTTP_TIMEOUT_MS);
+  http.addHeader("Authorization", String("Bearer ") + CLOUDFLARE_DEVICE_TOKEN);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(payload);
+  response = code > 0 ? http.getString() : String();
+  http.end();
+  return code;
+}
+
+bool uploadToCloudflare(const SensorRecord& record) {
+  if (!cloudflareConfigured()) return false;
+  String payload;
+  if (!payload.reserve(640) || !appendCloudflareReadingJson(payload, record)) {
+    Serial.println("Cloudflare upload skipped: payload allocation or formatting failed.");
+    return false;
+  }
+  String response;
+  int code = postCloudflarePayload(CLOUDFLARE_INGEST_URL, payload, response);
+  bool acknowledged = (code == 200 || code == 201) &&
+                      responseAcknowledgesReading(response, record);
+  if (acknowledged) {
+    Serial.printf("Cloudflare acknowledged reading %lu.\n",
+                  static_cast<unsigned long>(record.sequence));
+  } else {
+    Serial.printf("Cloudflare upload not acknowledged: HTTP %d.\n", code);
+  }
+  return acknowledged;
+}
+
+void recoverPendingCloudflareRecords() {
+  if (!cloudflareConfigured() || !deadlineReached(nextCloudflareRecoveryMs) ||
+      WiFi.status() != WL_CONNECTED || otaInProgress) return;
+  size_t count = collectPendingDestinationRecords(
+    bulkUploadBatch, CLOUDFLARE_BULK_BATCH_SIZE, FLAG_CLOUDFLARE_OK);
+  if (count == 0) {
+    resetCloudflareBackoff();
+    return;
+  }
+
+  String payload;
+  if (!payload.reserve(96 + count * 560U)) {
+    Serial.println("Cloudflare recovery skipped: insufficient heap for JSON payload.");
+    scheduleCloudflareBackoff();
+    return;
+  }
+  payload += F("{\"schema_version\":1,\"readings\":[");
+  size_t appended = 0;
+  for (size_t index = 0; index < count; ++index) {
+    if (appended > 0) payload += ',';
+    if (appendCloudflareReadingJson(payload, bulkUploadBatch[index].record)) appended++;
+  }
+  payload += F("]}");
+  if (appended != count) {
+    Serial.println("Cloudflare recovery formatting failed; records remain pending.");
+    scheduleCloudflareBackoff();
+    return;
+  }
+
+  Serial.printf("Cloudflare recovery: uploading %u oldest pending records.\n",
+                static_cast<unsigned>(count));
+  String response;
+  int code = postCloudflarePayload(
+    String(CLOUDFLARE_INGEST_URL) + F("/bulk"), payload, response);
+  if (code != 200) {
+    Serial.printf("Cloudflare recovery failed: HTTP %d.\n", code);
+    scheduleCloudflareBackoff();
+    return;
+  }
+
+  size_t acknowledged = 0;
+  for (size_t index = 0; index < count; ++index) {
+    if (!responseAcknowledgesReading(response, bulkUploadBatch[index].record)) continue;
+    if (acknowledged != index) bulkUploadBatch[acknowledged] = bulkUploadBatch[index];
+    acknowledged++;
+  }
+  size_t marked = markRecordsDestinationOk(
+    bulkUploadBatch, acknowledged, FLAG_CLOUDFLARE_OK);
+  Serial.printf("Cloudflare recovery: %u acknowledged, %u marked complete.\n",
+                static_cast<unsigned>(acknowledged), static_cast<unsigned>(marked));
+  if (acknowledged == count && marked == acknowledged) resetCloudflareBackoff();
+  else scheduleCloudflareBackoff();
+}
+
+// ================= CLOUD UPLOAD TASK =================
 int uploadToThingSpeak(const ThingSpeakJob& job) {
   if (WiFi.status() != WL_CONNECTED) return -1000;
   int code = -1;
@@ -839,23 +1086,42 @@ void thingSpeakTask(void* parameter) {
     if (xQueueReceive(thingSpeakQueue, &job, portMAX_DELAY) != pdTRUE) continue;
     while (otaInProgress) vTaskDelay(pdMS_TO_TICKS(100));
     int code = uploadToThingSpeak(job);
-    bool cloudOk = code == 200;
+    bool thingSpeakOk = code == 200;
+    bool cloudflareEnabled = cloudflareConfigured();
+    bool cloudflareOk = cloudflareEnabled && uploadToCloudflare(job.record);
 
     if (takeMutex(stateMutex, portMAX_DELAY)) {
-      if (cloudOk) consecutiveUploadFailures = 0;
+      if (thingSpeakOk) consecutiveUploadFailures = 0;
       else if (consecutiveUploadFailures < UINT32_MAX) consecutiveUploadFailures++;
+      if (cloudflareEnabled) {
+        if (cloudflareOk) consecutiveCloudflareFailures = 0;
+        else if (consecutiveCloudflareFailures < UINT32_MAX) consecutiveCloudflareFailures++;
+      }
       giveMutex(stateMutex);
     }
 
-    if (cloudOk && job.slot < MAX_RECORDS &&
+    if (thingSpeakOk && job.slot < MAX_RECORDS &&
         !markRecordDestinationOk(job.slot, job.record, FLAG_THINGSPEAK_OK)) {
       Serial.println("Failed to update local ThingSpeak acknowledgement flag.");
     }
-    if (!cloudOk) {
+    if (cloudflareOk && job.slot < MAX_RECORDS &&
+        !markRecordDestinationOk(job.slot, job.record, FLAG_CLOUDFLARE_OK)) {
+      Serial.println("Failed to update local Cloudflare acknowledgement flag.");
+    }
+    if (!thingSpeakOk) {
       Serial.printf("ThingSpeak upload failed; local record retained. Consecutive failures: %lu\n",
                     static_cast<unsigned long>(consecutiveUploadFailures));
     } else {
       recoverPendingThingSpeakRecords();
+    }
+    if (cloudflareEnabled) {
+      if (cloudflareOk) resetCloudflareBackoff();
+      else {
+        Serial.printf("Cloudflare upload failed; local record retained. Consecutive failures: %lu\n",
+                      static_cast<unsigned long>(consecutiveCloudflareFailures));
+        scheduleCloudflareBackoff();
+      }
+      recoverPendingCloudflareRecords();
     }
   }
 }
@@ -875,7 +1141,7 @@ bool setupThingSpeakTask() {
     thingSpeakQueue = nullptr;
     return false;
   }
-  Serial.println("ThingSpeak task started.");
+  Serial.println("Cloud upload task started.");
   return true;
 }
 
@@ -892,7 +1158,7 @@ bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
   }
   if (xQueueSend(thingSpeakQueue, &job, 0) == pdTRUE) return true;
   droppedUploadJobs++;
-  Serial.printf("ThingSpeak queue full; dropped upload job. Total dropped: %lu\n",
+  Serial.printf("Cloud upload queue full; dropped upload job. Total dropped: %lu\n",
                 static_cast<unsigned long>(droppedUploadJobs));
   return false;
 }
@@ -1145,6 +1411,8 @@ void performMeasurementCycle() {
   record.timestamp = static_cast<uint32_t>(now);
   record.bootId = currentBootId;
   record.sequence = nextReadingSequence++;
+  record.firmwareVersion = FIRMWARE_VERSION_CODE;
+  record.resetReason = static_cast<uint8_t>(bootResetReason);
   record.temperature = temperature;
   record.humidity = humidity;
   record.pressure = pressure;
@@ -1178,10 +1446,11 @@ void setup() {
   delay(800);
   Serial.printf("\nESP32 hydroponics logger v%s starting.\n", FIRMWARE_VERSION);
   currentBootId = makeBootId();
-  bootResetReason = resetReasonName(esp_reset_reason());
+  bootResetReason = esp_reset_reason();
   char bootId[17];
   formatBootId(currentBootId, bootId, sizeof(bootId));
-  Serial.printf("Boot ID: %s, reset reason: %s\n", bootId, bootResetReason);
+  Serial.printf("Boot ID: %s, reset reason: %s\n",
+                bootId, resetReasonName(bootResetReason));
 
   fsMutex = xSemaphoreCreateMutex();
   stateMutex = xSemaphoreCreateMutex();
@@ -1203,6 +1472,8 @@ void setup() {
   ThingSpeak.begin(thingSpeakClient);
 
   initializeFilesystem();
+  Serial.printf("Cloudflare ingestion: %s\n",
+                cloudflareConfigured() ? "configured" : "disabled (device token missing)");
   Serial.printf("Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
   setupThingSpeakTask();
