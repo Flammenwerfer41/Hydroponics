@@ -104,3 +104,21 @@ an issue, or stored in D1 as plaintext.
 
 Until the D1 binding and at least one device credential exist, the existing weather
 routes continue to work and ingestion returns HTTP 503 without changing any data.
+
+## ESP32 parallel-validation behavior
+
+Firmware v8.2.0 keeps ThingSpeak active while validating D1. Every LittleFS v4
+record stores its boot ID, sequence, firmware version, reset reason, sensor values,
+latest valid SwitchBot telemetry, and separate ThingSpeak/Cloudflare acknowledgement
+bits.
+
+- A live reading is offered to both destinations even if the other one fails.
+- Cloudflare completion requires an explicit `accepted` or `duplicate` result.
+- Pending Cloudflare records replay oldest first in batches of at most 15.
+- Failed recovery uses exponential backoff from 30 seconds to 30 minutes with jitter.
+- Pending ThingSpeak and Cloudflare bits are updated independently.
+- An empty `CLOUDFLARE_DEVICE_TOKEN` disables only the Cloudflare destination.
+
+The current `workers.dev` TLS chain is verified against GlobalSign ECC Root CA R4.
+If Cloudflare changes the chain, verification fails closed and records remain pending
+until a firmware update supplies the new public root certificate.
