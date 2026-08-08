@@ -1,6 +1,6 @@
 # JMA weather Worker
 
-This Worker converts the latest JMA AMeDAS observations into a small JSON response for the public dashboard.
+This Worker converts the latest JMA AMeDAS observations into a small JSON response for the public dashboard and contains the authenticated D1 measurement ingestion API.
 
 - Tokyo (`44132`): temperature, humidity, pressure, wind and sunshine
 - Setagaya (`44126`): local precipitation
@@ -8,6 +8,10 @@ This Worker converts the latest JMA AMeDAS observations into a small JSON respon
 - Endpoint: `/v1/current` (the root path returns the same response)
 - Cache: five minutes
 - No API key, KV namespace or secret is required
+
+The weather route still needs no secret. Measurement ingestion is documented in
+[`INGESTION.md`](INGESTION.md) and remains unavailable until a `HYDROPONICS_DB` D1
+binding and a device credential are configured.
 
 The dashboard URL is configured separately in `docs/weather-config.js` after the first Cloudflare deployment.
 

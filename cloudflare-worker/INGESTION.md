@@ -65,3 +65,42 @@ The initial metric names and units are:
 Metric names are versioned to prevent silent typos. Adding EC, pH or another future
 measurement requires a contract update but does not require a D1 schema redesign.
 
+## Endpoints
+
+- `POST /v1/readings`: one version 1 reading
+- `POST /v1/readings/bulk`: `{ "schema_version": 1, "readings": [...] }`
+- Maximum batch size: 15 readings
+- Maximum JSON body: 128 KiB
+- Authentication: `Authorization: Bearer <device credential>`
+
+Both endpoints use the same validation and persistence path. A single response has
+HTTP 201 for `accepted`, HTTP 200 for `duplicate`, HTTP 409 for an identity conflict,
+and HTTP 422 for invalid input. A valid bulk envelope returns HTTP 200 and reports
+each item independently as `accepted`, `duplicate`, or `rejected`. Firmware must only
+mark a LittleFS record complete after `accepted` or `duplicate`.
+
+The 15-reading limit keeps a worst-case request below the D1 Free limit of 50 queries
+per Worker invocation. A device with more pending records sends multiple batches.
+
+The credential itself is never stored. Store its lowercase SHA-256 digest in
+`device_credentials.secret_sha256`; the Worker hashes the bearer value before D1
+lookup. Revoking one row disables only that device credential. Configure the D1
+binding as `HYDROPONICS_DB`. The optional secret `AUDIT_HASH_SALT` enables a salted
+hash of the source address for diagnostics; raw addresses are not persisted.
+
+Run `npm run credential:create` locally to generate a bearer value and its digest.
+Copy the bearer value into the device's untracked `secrets.h`, then insert only the
+digest into D1 after creating the matching site, zone and device records:
+
+```sql
+INSERT INTO device_credentials
+  (id, device_id, label, secret_sha256, created_at)
+VALUES
+  ('esp32-01-primary', 'esp32-01', 'primary', '<SHA-256 digest>', '<UTC timestamp>');
+```
+
+The generated bearer value is displayed once and must not be committed, pasted into
+an issue, or stored in D1 as plaintext.
+
+Until the D1 binding and at least one device credential exist, the existing weather
+routes continue to work and ingestion returns HTTP 503 without changing any data.

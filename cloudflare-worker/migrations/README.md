@@ -20,6 +20,20 @@ npx wrangler d1 migrations apply hydroponics --remote
 
 For local development, omit `--remote`.
 
+Add the binding beside the existing Wrangler settings after D1 returns the database
+ID:
+
+```jsonc
+"d1_databases": [
+  {
+    "binding": "HYDROPONICS_DB",
+    "database_name": "hydroponics",
+    "database_id": "<D1 database ID>",
+    "migrations_dir": "migrations"
+  }
+]
+```
+
 ## Rollback
 
 Cloudflare D1 migrations are forward-only. Before a production migration, export
@@ -29,4 +43,3 @@ data exists, restore the export into a new database and switch the binding inste
 of dropping tables in place.
 
 No migration or deployment is performed merely by committing these files.
-

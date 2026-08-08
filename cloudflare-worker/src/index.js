@@ -1,3 +1,5 @@
+import { handleIngestion } from "./ingestion/handler.js";
+
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
 const JMA_FORECAST_URL =
   "https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/130010.json";
@@ -319,7 +321,12 @@ async function currentWeather(request, context) {
 }
 
 export default {
-  async fetch(request, _environment, context) {
+  async fetch(request, environment, context) {
+    const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if (path === "/v1/readings" || path === "/v1/readings/bulk") {
+      return handleIngestion(request, environment, context, path);
+    }
+
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -330,7 +337,6 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405, { "Allow": "GET, OPTIONS" });
     }
 
-    const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
     if (path !== "/" && path !== "/v1/current") {
       return jsonResponse({ error: "Not found" }, 404);
     }

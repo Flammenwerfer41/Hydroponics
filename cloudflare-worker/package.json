@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "credential:create": "node scripts/create-device-credential.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "node --test"
