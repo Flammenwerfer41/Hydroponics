@@ -1,7 +1,25 @@
 "use strict";
 
-const CHANNEL_ID = 3436358;
-const API_BASE = `https://api.thingspeak.com/channels/${CHANNEL_ID}`;
+const DATA_API_BASE = String(globalThis.HYDROPONICS_CONFIG?.dataApiBaseUrl || "")
+  .trim()
+  .replace(/\/+$/, "");
+const DASHBOARD_METRICS = Object.freeze([
+  "air_temperature",
+  "humidity",
+  "pressure",
+  "wifi_rssi",
+  "water_temperature",
+  "light_status",
+  "light_power",
+  "light_uptime"
+]);
+const HISTORY_METRICS = Object.freeze([
+  "air_temperature",
+  "humidity",
+  "pressure",
+  "water_temperature",
+  "light_status"
+]);
 const CURRENT_REFRESH_MS = 60_000;
 const CURRENT_LOOKBACK_RESULTS = 30;
 const HISTORY_REFRESH_MS = 120_000;
@@ -11,7 +29,9 @@ const JST_TIME_ZONE = "Asia/Tokyo";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LANGUAGE_STORAGE_KEY = "hydroponics-language";
-const WEATHER_API_URL = String(globalThis.HYDROPONICS_CONFIG?.weatherApiUrl || "").trim();
+const WEATHER_API_URL = String(
+  globalThis.HYDROPONICS_CONFIG?.weatherApiUrl || `${DATA_API_BASE}/v1/current`
+).trim();
 
 const TRANSLATIONS = {
   ko: {
@@ -114,7 +134,7 @@ const TRANSLATIONS = {
     "range.day.label": "오늘과 전날",
     "range.day.resolution": "2분 원본 데이터",
     "range.week.label": "최근 7일",
-    "range.week.resolution": "10분 평균",
+    "range.week.resolution": "1시간 평균",
     "range.month.label": "최근 30일",
     "range.month.resolution": "1시간 평균",
     "common.today": "오늘",
@@ -138,7 +158,7 @@ const TRANSLATIONS = {
     "chart.noData": "표시할 데이터가 없습니다.",
     "system.aria": "장치 상태",
     "system.wifi": "Wi-Fi 신호",
-    "system.lastEntry": "마지막 엔트리",
+    "system.lastEntry": "최신 레코드",
     "system.interval": "데이터 간격",
     "system.twoMinutes": "2분",
     "system.uploadCycle": "ESP32 업로드 주기",
@@ -148,7 +168,7 @@ const TRANSLATIONS = {
     "wifi.normal": "보통",
     "wifi.weak": "약함",
     "footer.links": "관련 링크",
-    "noscript": "이 대시보드는 ThingSpeak 데이터를 불러오기 위해 JavaScript가 필요합니다.",
+    "noscript": "이 대시보드는 Cloudflare 센서 데이터를 불러오기 위해 JavaScript가 필요합니다.",
     "relative.justNow": "방금 전",
     "relative.seconds": "{value}초 전",
     "relative.minutes": "{value}분 전",
@@ -258,7 +278,7 @@ const TRANSLATIONS = {
     "range.day.label": "今日と前日",
     "range.day.resolution": "2分間隔の元データ",
     "range.week.label": "直近7日間",
-    "range.week.resolution": "10分平均",
+    "range.week.resolution": "1時間平均",
     "range.month.label": "直近30日間",
     "range.month.resolution": "1時間平均",
     "common.today": "今日",
@@ -282,7 +302,7 @@ const TRANSLATIONS = {
     "chart.noData": "表示できるデータがありません。",
     "system.aria": "デバイスの状態",
     "system.wifi": "Wi-Fi信号",
-    "system.lastEntry": "最新エントリー",
+    "system.lastEntry": "最新レコード",
     "system.interval": "データ間隔",
     "system.twoMinutes": "2分",
     "system.uploadCycle": "ESP32アップロード周期",
@@ -292,7 +312,7 @@ const TRANSLATIONS = {
     "wifi.normal": "普通",
     "wifi.weak": "弱い",
     "footer.links": "関連リンク",
-    "noscript": "このダッシュボードでThingSpeakデータを読み込むにはJavaScriptが必要です。",
+    "noscript": "このダッシュボードでCloudflareのセンサーデータを読み込むにはJavaScriptが必要です。",
     "relative.justNow": "たった今",
     "relative.seconds": "{value}秒前",
     "relative.minutes": "{value}分前",
@@ -306,19 +326,23 @@ const TRANSLATIONS = {
 
 const RANGE_CONFIG = {
   day: {
-    query: "days=2",
+    endpoint: "/v1/readings",
+    query: "days=2&limit=1000",
+    paginated: true,
     resolutionKey: "range.day.resolution",
     labelKey: "range.day.label",
     bucketSeconds: 120
   },
   week: {
-    query: "days=7&average=10",
+    endpoint: "/v1/history/hourly",
+    query: "days=7",
     resolutionKey: "range.week.resolution",
     labelKey: "range.week.label",
-    bucketSeconds: 600
+    bucketSeconds: 3600
   },
   month: {
-    query: "days=30&average=60",
+    endpoint: "/v1/history/hourly",
+    query: "days=30",
     resolutionKey: "range.month.resolution",
     labelKey: "range.month.label",
     bucketSeconds: 3600
@@ -430,6 +454,10 @@ function finiteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function dataApiUrl(path) {
+  return `${DATA_API_BASE}${path}`;
 }
 
 function fixed(value, decimals = 1) {
@@ -768,12 +796,15 @@ function renderConnection(createdAt, failed = false) {
   }
 }
 
-function latestValidField(feeds, fieldName) {
-  for (let index = feeds.length - 1; index >= 0; index -= 1) {
-    const feed = feeds[index];
-    const value = finiteNumber(feed?.[fieldName]);
-    const createdAt = new Date(feed?.created_at);
-    if (Number.isFinite(value) && !Number.isNaN(createdAt.getTime())) {
+function latestValidMetric(readings, metricName) {
+  for (const reading of readings) {
+    const value = finiteNumber(reading?.values?.[metricName]);
+    const createdAt = new Date(reading?.measured_at);
+    if (
+      reading?.quality?.[metricName] === "valid" &&
+      Number.isFinite(value) &&
+      !Number.isNaN(createdAt.getTime())
+    ) {
       return { value, createdAt };
     }
   }
@@ -781,16 +812,24 @@ function latestValidField(feeds, fieldName) {
 }
 
 function buildCurrentSnapshot(data) {
-  const feeds = Array.isArray(data?.feeds)
-    ? data.feeds.filter((feed) => feed && typeof feed === "object")
+  const readings = Array.isArray(data?.readings)
+    ? data.readings
+      .filter((reading) => reading && typeof reading === "object")
+      .sort((left, right) => Date.parse(right.measured_at) - Date.parse(left.measured_at))
     : [];
-  if (!feeds.length) throw new Error("Invalid current response");
+  if (!readings.length) throw new Error("Invalid current response");
 
-  const latestFeed = feeds[feeds.length - 1];
-  const fields = {};
-  for (let number = 1; number <= 8; number += 1) {
-    fields[`field${number}`] = latestValidField(feeds, `field${number}`);
-  }
+  const latestFeed = readings[0];
+  const fields = {
+    field1: latestValidMetric(readings, "air_temperature"),
+    field2: latestValidMetric(readings, "humidity"),
+    field3: latestValidMetric(readings, "pressure"),
+    field4: latestValidMetric(readings, "wifi_rssi"),
+    field5: latestValidMetric(readings, "water_temperature"),
+    field6: latestValidMetric(readings, "light_status"),
+    field7: latestValidMetric(readings, "light_power"),
+    field8: latestValidMetric(readings, "light_uptime")
+  };
   return { latestFeed, fields };
 }
 
@@ -815,7 +854,7 @@ function renderCurrent(snapshot) {
   const lightStatus = fields.field6.value;
   const lightPower = fields.field7.value;
   const lightMinutes = fields.field8.value;
-  const createdAt = new Date(feed.created_at);
+  const createdAt = new Date(feed.measured_at);
 
   element("temperature").textContent = fixed(temperature, 1);
   element("humidity").textContent = fixed(humidity, 1);
@@ -826,7 +865,8 @@ function renderCurrent(snapshot) {
   renderDerivedMetrics(temperature, humidity);
   element("wifiRssi").textContent = Number.isFinite(rssi) ? `${Math.round(rssi)} dBm` : "-- dBm";
   element("wifiQuality").textContent = wifiDescription(rssi);
-  element("entryId").textContent = feed.entry_id ? `#${feed.entry_id}` : "#--";
+  const readingSequence = String(feed.reading_id || "").split(":").at(-1);
+  element("entryId").textContent = readingSequence ? `#${readingSequence}` : "#--";
   element("lightPower").textContent = fixed(lightPower, 1);
   element("lightRuntime").textContent = formatRuntime(lightMinutes);
 
@@ -866,7 +906,10 @@ async function refreshCurrent() {
   const sequence = ++state.currentSequence;
   try {
     const data = await fetchJson(
-      `${API_BASE}/feeds.json?results=${CURRENT_LOOKBACK_RESULTS}`,
+      dataApiUrl(
+        `/v1/readings?days=1&limit=${CURRENT_LOOKBACK_RESULTS}` +
+        `&metrics=${DASHBOARD_METRICS.join(",")}`
+      ),
       "currentController"
     );
     if (sequence !== state.currentSequence) return;
@@ -879,18 +922,57 @@ async function refreshCurrent() {
   }
 }
 
-function parseHistory(feeds) {
-  return feeds
-    .map((feed) => ({
-      time: Date.parse(feed.created_at),
-      temperature: finiteNumber(feed.field1),
-      humidity: finiteNumber(feed.field2),
-      pressure: finiteNumber(feed.field3),
-      waterTemperature: finiteNumber(feed.field5),
-      lightStatus: finiteNumber(feed.field6)
+function parseRawHistory(readings) {
+  return readings
+    .map((reading) => ({
+      time: Date.parse(reading.measured_at),
+      temperature: finiteNumber(reading.values?.air_temperature),
+      humidity: finiteNumber(reading.values?.humidity),
+      pressure: finiteNumber(reading.values?.pressure),
+      waterTemperature: finiteNumber(reading.values?.water_temperature),
+      lightStatus: finiteNumber(reading.values?.light_status)
     }))
     .filter((point) => Number.isFinite(point.time))
     .sort((a, b) => a.time - b.time);
+}
+
+function parseAggregateHistory(buckets) {
+  return buckets
+    .map((bucket) => ({
+      time: Date.parse(bucket.start),
+      temperature: finiteNumber(bucket.metrics?.air_temperature?.mean),
+      humidity: finiteNumber(bucket.metrics?.humidity?.mean),
+      pressure: finiteNumber(bucket.metrics?.pressure?.mean),
+      waterTemperature: finiteNumber(bucket.metrics?.water_temperature?.mean),
+      lightStatus: finiteNumber(bucket.metrics?.light_status?.mean)
+    }))
+    .filter((point) => Number.isFinite(point.time))
+    .sort((a, b) => a.time - b.time);
+}
+
+async function fetchHistoryPoints(config) {
+  const metrics = `metrics=${HISTORY_METRICS.join(",")}`;
+  if (!config.paginated) {
+    const data = await fetchJson(
+      dataApiUrl(`${config.endpoint}?${config.query}&${metrics}`),
+      "historyController"
+    );
+    return parseAggregateHistory(Array.isArray(data?.buckets) ? data.buckets : []);
+  }
+
+  const readings = [];
+  let cursor = null;
+  for (let page = 0; page < 4; page += 1) {
+    const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+    const data = await fetchJson(
+      dataApiUrl(`${config.endpoint}?${config.query}&${metrics}${cursorQuery}`),
+      "historyController"
+    );
+    if (Array.isArray(data?.readings)) readings.push(...data.readings);
+    cursor = data?.page?.next_cursor || null;
+    if (!cursor) return parseRawHistory(readings);
+  }
+  throw new Error("History pagination exceeded the safety limit");
 }
 
 function setRangeButtons(activeRange, disabled = false) {
@@ -936,16 +1018,16 @@ async function loadHistory(range, announceLoading = true) {
   }
 
   try {
-    const data = await fetchJson(`${API_BASE}/feeds.json?${config.query}`, "historyController");
+    const points = await fetchHistoryPoints(config);
     if (sequence !== state.historySequence) return;
     enableWeather();
     const domain = historyDomain(range);
     const earliest = range === "day" ? domain.previousStart : domain.start;
-    const points = parseHistory(Array.isArray(data.feeds) ? data.feeds : [])
+    const visiblePoints = points
       .filter((point) => point.time >= earliest && point.time <= domain.end);
     state.range = range;
     state.historyTargetRange = range;
-    state.history = points;
+    state.history = visiblePoints;
     state.historyStatus = "ready";
     state.rangeStart = domain.start;
     state.rangeEnd = domain.end;
