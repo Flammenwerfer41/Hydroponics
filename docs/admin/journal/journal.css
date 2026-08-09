@@ -15,7 +15,8 @@ textarea { resize:vertical; line-height:1.65; }
 .crop-chips { margin-top:12px; }
 .chip { border-radius:999px; padding:.3rem .58rem; font-size:.72rem; font-weight:800; background:rgba(21,131,95,.1); color:var(--green); }
 .card-summary { margin:12px 0; color:var(--muted); line-height:1.6; }
-.card-values { color:var(--muted); font-size:.78rem; }
+.card-values { gap:7px; color:var(--muted); font-size:.78rem; }
+.card-value { display:inline-flex; align-items:center; min-height:30px; padding:.28rem .55rem; border-radius:9px; background:rgba(110,130,120,.09); white-space:nowrap; }
 .empty-list { text-align:center; padding:54px 20px; border:1px dashed var(--line); border-radius:20px; color:var(--muted); }
 .editor-heading { display:flex; align-items:center; gap:16px; margin-bottom:16px; }
 .editor-heading p,.editor-heading h2 { margin:0; }

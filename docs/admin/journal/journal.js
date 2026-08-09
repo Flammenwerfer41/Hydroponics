@@ -110,9 +110,15 @@ function renderList(entries) {
     summary.textContent = summaryText(entry);
     const values = document.createElement("div");
     values.className = "card-values";
-    if (entry.solution_ph !== null) values.append(`pH ${entry.solution_ph}`);
-    if (entry.electrical_conductivity !== null) values.append(`EC ${entry.electrical_conductivity} mS/cm`);
-    if (entry.solution_added_volume !== null) values.append(`${liquidLabel(entry.solution_added_liquid_type)} ${entry.solution_added_volume}L 보충`);
+    const appendValue = (text) => {
+      const value = document.createElement("span");
+      value.className = "card-value";
+      value.textContent = text;
+      values.append(value);
+    };
+    if (entry.solution_ph !== null) appendValue(`pH ${entry.solution_ph}`);
+    if (entry.electrical_conductivity !== null) appendValue(`EC ${entry.electrical_conductivity} mS/cm`);
+    if (entry.solution_added_volume !== null) appendValue(`${liquidLabel(entry.solution_added_liquid_type)} ${entry.solution_added_volume} L 보충`);
     card.append(top, crops, summary, values);
     container.append(card);
   });

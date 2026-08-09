@@ -133,6 +133,13 @@ footer {
   gap: 10px;
 }
 
+.admin-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .admin-link {
   display: inline-flex;
   align-items: center;
@@ -146,6 +153,12 @@ footer {
   font-size: 0.78rem;
   font-weight: 800;
   text-decoration: none;
+}
+
+.admin-link.journal-link {
+  border-color: rgba(21, 131, 95, 0.28);
+  color: var(--green-dark);
+  background: var(--green-soft);
 }
 
 .language-switcher {
@@ -1438,6 +1451,10 @@ noscript {
   .hero-actions {
     align-items: flex-start;
     margin-top: 18px;
+  }
+
+  .admin-links {
+    justify-content: flex-start;
   }
 
   .section,
