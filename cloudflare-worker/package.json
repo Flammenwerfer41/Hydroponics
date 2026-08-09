@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "backup:run": "node scripts/backup-d1-to-r2.mjs",
+    "backfill:thingspeak": "node scripts/backfill-thingspeak-to-d1.mjs",
     "credential:create": "node scripts/create-device-credential.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
