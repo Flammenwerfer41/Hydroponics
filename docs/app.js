@@ -8,17 +8,13 @@ const DASHBOARD_METRICS = Object.freeze([
   "humidity",
   "pressure",
   "wifi_rssi",
-  "water_temperature",
-  "light_status",
-  "light_power",
-  "light_uptime"
+  "water_temperature"
 ]);
 const HISTORY_METRICS = Object.freeze([
   "air_temperature",
   "humidity",
   "pressure",
-  "water_temperature",
-  "light_status"
+  "water_temperature"
 ]);
 const CURRENT_REFRESH_MS = 60_000;
 const CURRENT_LOOKBACK_RESULTS = 30;
@@ -38,6 +34,7 @@ const TRANSLATIONS = {
     "meta.description": "ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드",
     "language.selector": "표시 언어",
     "hero.copy": "수경재배 환경과 조명 상태를 원격으로 확인합니다.",
+    "hero.admin": "관리",
     "connection.loading": "연결 확인 중",
     "connection.failed": "데이터 연결 실패",
     "connection.online": "정상 수신 중",
@@ -182,6 +179,7 @@ const TRANSLATIONS = {
     "meta.description": "ESP32水耕栽培環境センサーの温度・湿度・気圧と照明状態を確認するダッシュボード",
     "language.selector": "表示言語",
     "hero.copy": "水耕栽培の環境と照明の状態を遠隔で確認できます。",
+    "hero.admin": "管理",
     "connection.loading": "接続確認中",
     "connection.failed": "データ接続に失敗",
     "connection.online": "データ受信中",
@@ -327,7 +325,7 @@ const TRANSLATIONS = {
 const RANGE_CONFIG = {
   day: {
     endpoint: "/v1/readings",
-    query: "days=2&limit=1000",
+    query: "days=2&limit=1000&device_id=esp32-01",
     paginated: true,
     resolutionKey: "range.day.resolution",
     labelKey: "range.day.label",
@@ -335,14 +333,14 @@ const RANGE_CONFIG = {
   },
   week: {
     endpoint: "/v1/history/hourly",
-    query: "days=7",
+    query: "days=7&device_id=esp32-01",
     resolutionKey: "range.week.resolution",
     labelKey: "range.week.label",
     bucketSeconds: 3600
   },
   month: {
     endpoint: "/v1/history/hourly",
-    query: "days=30",
+    query: "days=30&device_id=esp32-01",
     resolutionKey: "range.month.resolution",
     labelKey: "range.month.label",
     bucketSeconds: 3600
@@ -405,6 +403,7 @@ const state = {
   range: "day",
   historyTargetRange: "day",
   history: [],
+  lightHistory: [],
   historyStatus: "loading",
   historySequence: 0,
   currentSequence: 0,
@@ -811,7 +810,7 @@ function latestValidMetric(readings, metricName) {
   return { value: null, createdAt: null };
 }
 
-function buildCurrentSnapshot(data) {
+function buildCurrentSnapshot(data, lightData) {
   const readings = Array.isArray(data?.readings)
     ? data.readings
       .filter((reading) => reading && typeof reading === "object")
@@ -826,9 +825,22 @@ function buildCurrentSnapshot(data) {
     field3: latestValidMetric(readings, "pressure"),
     field4: latestValidMetric(readings, "wifi_rssi"),
     field5: latestValidMetric(readings, "water_temperature"),
-    field6: latestValidMetric(readings, "light_status"),
-    field7: latestValidMetric(readings, "light_power"),
-    field8: latestValidMetric(readings, "light_uptime")
+    field6: {
+      value: lightData?.telemetry?.power_state === "on" ? 1 :
+        lightData?.telemetry?.power_state === "off" ? 0 : null,
+      createdAt: lightData?.telemetry?.observed_at
+        ? new Date(lightData.telemetry.observed_at) : null
+    },
+    field7: {
+      value: finiteNumber(lightData?.telemetry?.power_w),
+      createdAt: lightData?.telemetry?.observed_at
+        ? new Date(lightData.telemetry.observed_at) : null
+    },
+    field8: {
+      value: finiteNumber(lightData?.telemetry?.runtime_minutes),
+      createdAt: lightData?.telemetry?.observed_at
+        ? new Date(lightData.telemetry.observed_at) : null
+    }
   };
   return { latestFeed, fields };
 }
@@ -905,15 +917,20 @@ async function refreshCurrent() {
   if (document.hidden) return;
   const sequence = ++state.currentSequence;
   try {
-    const data = await fetchJson(
-      dataApiUrl(
-        `/v1/readings?days=1&limit=${CURRENT_LOOKBACK_RESULTS}` +
-        `&metrics=${DASHBOARD_METRICS.join(",")}`
+    const [data, lightData] = await Promise.all([
+      fetchJson(
+        dataApiUrl(
+          `/v1/readings?days=1&limit=${CURRENT_LOOKBACK_RESULTS}` +
+          `&device_id=esp32-01&metrics=${DASHBOARD_METRICS.join(",")}`
+        ),
+        "currentController"
       ),
-      "currentController"
-    );
+      fetch(dataApiUrl("/v1/light/current"), { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null)
+    ]);
     if (sequence !== state.currentSequence) return;
-    renderCurrent(buildCurrentSnapshot(data));
+    renderCurrent(buildCurrentSnapshot(data, lightData));
   } catch (error) {
     if (sequence !== state.currentSequence || error.name === "AbortError") return;
     state.currentFailed = true;
@@ -929,8 +946,7 @@ function parseRawHistory(readings) {
       temperature: finiteNumber(reading.values?.air_temperature),
       humidity: finiteNumber(reading.values?.humidity),
       pressure: finiteNumber(reading.values?.pressure),
-      waterTemperature: finiteNumber(reading.values?.water_temperature),
-      lightStatus: finiteNumber(reading.values?.light_status)
+      waterTemperature: finiteNumber(reading.values?.water_temperature)
     }))
     .filter((point) => Number.isFinite(point.time))
     .sort((a, b) => a.time - b.time);
@@ -943,21 +959,33 @@ function parseAggregateHistory(buckets) {
       temperature: finiteNumber(bucket.metrics?.air_temperature?.mean),
       humidity: finiteNumber(bucket.metrics?.humidity?.mean),
       pressure: finiteNumber(bucket.metrics?.pressure?.mean),
-      waterTemperature: finiteNumber(bucket.metrics?.water_temperature?.mean),
-      lightStatus: finiteNumber(bucket.metrics?.light_status?.mean)
+      waterTemperature: finiteNumber(bucket.metrics?.water_temperature?.mean)
     }))
     .filter((point) => Number.isFinite(point.time))
     .sort((a, b) => a.time - b.time);
 }
 
-async function fetchHistoryPoints(config) {
+async function fetchHistoryPoints(config, range) {
   const metrics = `metrics=${HISTORY_METRICS.join(",")}`;
+  const lightPromise = fetch(dataApiUrl(
+    `/v1/light/history?days=${range === "month" ? 30 : range === "week" ? 7 : 2}` +
+    `&granularity=${range === "day" ? "raw" : "hourly"}`
+  ), { cache: "no-store" })
+    .then((response) => response.ok ? response.json() : { points: [] })
+    .then((data) => (Array.isArray(data?.points) ? data.points : []).map((point) => ({
+      time: Date.parse(point.time),
+      lightStatus: finiteNumber(point.light_status)
+    })).filter((point) => Number.isFinite(point.time)))
+    .catch(() => []);
   if (!config.paginated) {
     const data = await fetchJson(
       dataApiUrl(`${config.endpoint}?${config.query}&${metrics}`),
       "historyController"
     );
-    return parseAggregateHistory(Array.isArray(data?.buckets) ? data.buckets : []);
+    return {
+      sensorPoints: parseAggregateHistory(Array.isArray(data?.buckets) ? data.buckets : []),
+      lightPoints: await lightPromise
+    };
   }
 
   const readings = [];
@@ -970,7 +998,7 @@ async function fetchHistoryPoints(config) {
     );
     if (Array.isArray(data?.readings)) readings.push(...data.readings);
     cursor = data?.page?.next_cursor || null;
-    if (!cursor) return parseRawHistory(readings);
+    if (!cursor) return { sensorPoints: parseRawHistory(readings), lightPoints: await lightPromise };
   }
   throw new Error("History pagination exceeded the safety limit");
 }
@@ -1018,7 +1046,7 @@ async function loadHistory(range, announceLoading = true) {
   }
 
   try {
-    const points = await fetchHistoryPoints(config);
+    const { sensorPoints: points, lightPoints } = await fetchHistoryPoints(config, range);
     if (sequence !== state.historySequence) return;
     enableWeather();
     const domain = historyDomain(range);
@@ -1028,6 +1056,9 @@ async function loadHistory(range, announceLoading = true) {
     state.range = range;
     state.historyTargetRange = range;
     state.history = visiblePoints;
+    state.lightHistory = lightPoints
+      .filter((point) => point.time >= earliest && point.time <= domain.end)
+      .sort((left, right) => left.time - right.time);
     state.historyStatus = "ready";
     state.rangeStart = domain.start;
     state.rangeEnd = domain.end;
@@ -1047,7 +1078,7 @@ async function loadHistory(range, announceLoading = true) {
   }
 }
 
-function lightSegments(points = state.history) {
+function lightSegments(points = state.lightHistory) {
   if (points.length < 2) return [];
   const config = RANGE_CONFIG[state.range] || RANGE_CONFIG.day;
   const maximumGap = config.bucketSeconds * 3 * 1000;
@@ -1129,7 +1160,7 @@ function renderLightTimeline() {
   container.replaceChildren();
   previousContainer.replaceChildren();
 
-  if (state.history.length < 2) {
+  if (state.lightHistory.length < 2) {
     summary.textContent = t("common.noData");
     startLabel.textContent = "--";
     endLabel.textContent = "--";
@@ -1137,10 +1168,10 @@ function renderLightTimeline() {
   }
 
   if (state.range === "day") {
-    const previousPoints = state.history.filter(
+    const previousPoints = state.lightHistory.filter(
       (point) => point.time >= state.previousStart && point.time < state.todayStart
     );
-    const todayPoints = state.history.filter(
+    const todayPoints = state.lightHistory.filter(
       (point) => point.time >= state.todayStart && point.time < state.rangeEnd
     );
     const previousSegments = lightSegments(previousPoints);

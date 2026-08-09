@@ -1,7 +1,7 @@
 # ESP32 Hydroponics Environment Monitor
 
 ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 개발 기준은 v8.2.6이며 PlatformIO와 Arduino framework를 사용합니다.
+현재 개발 기준은 v8.3.0이며 PlatformIO와 Arduino framework를 사용합니다.
 
 ## 개발 환경
 
@@ -11,10 +11,10 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - I2C: SDA 18, SCL 19
 - 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 14일 링버퍼
-- Integrations: ThingSpeak, Cloudflare Workers/D1, SwitchBot Plug Mini
+- Integrations: ThingSpeak, Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
 - Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
 - Emergency mirror: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
-- Features: ThingSpeak·Cloudflare 병행 기록, Cloudflare 대시보드, OTA
+- Features: ThingSpeak·Cloudflare 병행 기록, Cloudflare 모니터링·관리 대시보드, OTA
 
 ## 처음 설정
 
@@ -41,9 +41,8 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 
 일반 펌웨어 OTA는 LittleFS 파티션 전체를 덮어쓰지 않습니다. 다만 수온을
 포함하는 새 저장 형식으로 전환한 펌웨어를 처음 실행하면 기존 센서 링버퍼와
-조명 이벤트 파일을 삭제하고 `/sensor_ring_v7.bin`을 생성합니다. v8.2.5는 과대했던
-v5/v6 파일을 감지하면 LittleFS를 한 번만 포맷하고, 512바이트 블록을 순차 기록해
-14일 링 파일을 초기화합니다.
+조명 이벤트 파일을 삭제하고 `/sensor_ring_v8.bin`을 생성합니다. v8.3.0은 기존 v7
+링을 삭제하고 SwitchBot 값이 빠진 40바이트 센서 레코드로 14일 링을 초기화합니다.
 
 ## 측정 및 저장 정책
 
@@ -52,15 +51,15 @@ v5/v6 파일을 감지하면 LittleFS를 한 번만 포맷하고, 512바이트 �
   실패한 필드만 비워 둡니다. 두 센서가 모두 실패한 주기만 건너뜁니다.
 - BME280은 5회 연속 실패하면 ESP32를 재시작합니다. DS18B20은 단선 시 재시작보다
   재탐색이 유효하므로 매 측정 주기에 다시 탐색하면서 다른 센서의 동작을 계속합니다.
-- `/sensor_ring_v7.bin`은 측정 시각, 부팅 ID, 순번, 펌웨어 버전, 센서값,
-  SwitchBot 조명값과 목적지별 확인 비트를 포함한 48바이트 `SensorRecord`를
+- `/sensor_ring_v8.bin`은 측정 시각, 부팅 ID, 순번, 펌웨어 버전, 물리 센서값과
+  목적지별 확인 비트를 포함한 40바이트 `SensorRecord`를
   사용하며 2분 간격으로 14일을 저장합니다. LittleFS의 copy-on-write를 고려해
   링 파일 두 배와 128KB 여유 공간이 파티션에 들어오는지도 부팅 시 검증합니다.
 - LittleFS 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
 - ThingSpeak와 Cloudflare 성공 상태를 별도 비트로 관리합니다. 한 목적지의 장애가
   다른 목적지의 전송 완료 상태를 바꾸지 않습니다.
 - ThingSpeak는 오래된 미확인 기록부터 최대 40건씩 복구하며, 링에 저장된
-  `field1`~`field8`을 원래 측정 시각으로 전송합니다.
+  `field1`~`field5`를 원래 측정 시각으로 전송합니다.
 - Cloudflare는 장치별 Bearer 토큰으로 인증하고, `accepted` 또는 `duplicate` 응답을
   받은 기록만 완료 처리합니다. 최대 15건을 오래된 순서로 복구하며 실패 시
   30초에서 30분까지 지수 백오프와 지터를 적용합니다.
@@ -72,25 +71,25 @@ v5/v6 파일을 감지하면 LittleFS를 한 번만 포맷하고, 512바이트 �
   남으므로, 새 루트 인증서를 반영한 펌웨어로 갱신해야 합니다.
 - ESP 로컬 웹 대시보드와 `/api/current`, `/api/history`, `/download.csv`는
   클라우드 대시보드 전환에 따라 제거되었습니다.
+- SwitchBot 토큰·서명·상태 조회도 ESP32에서 제거되었습니다. Worker가 조명 상태와
+  전력을 별도 주기로 기록하고 스케줄 및 관리자 명령을 처리합니다.
 - 기존 `/sensor_ring.bin`, `/sensor_ring_v2.bin`, `/sensor_ring_v3.bin`,
   `/light_events.bin`은 새 형식으로 처음 초기화할 때 삭제됩니다.
 - 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
 
 승인 상태는 `/sensor_ack_v1.bin` 사이드카에 슬롯당 1바이트로 저장합니다. 따라서
-ThingSpeak와 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다. 기존 v7
-링에 사이드카가 없으면 레코드의 기존 승인 비트를 한 번 이관하며 링 데이터는 지우지
-않습니다.
+ThingSpeak와 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다.
 
-## v8.2.6 병행 검증 절차
+## v8.3.0 클라우드 제어 구조
 
-2026-08-09부터 운영 D1과 Worker 수집 API가 활성화되었습니다. ThingSpeak는
-중단하지 않았으며 v8.2.5부터 두 목적지의 병행 검증을 진행합니다.
+ESP32는 BME280·DS18B20과 자체 Wi-Fi 상태만 수집합니다. 조명 상태·전력 조회,
+07:00 ON / 21:00 OFF 스케줄, 수동 조작과 에어컨 명령은 Cloudflare Worker가
+SwitchBot OpenAPI를 통해 담당합니다. 에어컨은 적외선 장치이므로 실제 상태가 아니라
+마지막 명령만 표시합니다.
 
-1. 시리얼 로그에서 ThingSpeak 성공과 `Cloudflare acknowledged reading`을 각각
-   확인합니다.
-2. ThingSpeak와 D1 데이터를 2주간 병행 비교한 뒤 목적지 전환 여부를 판단합니다.
-3. 검증 기간에 짧은 네트워크 단절을 만들어 오래된 기록부터 중복 없이 복구되는지
-   확인합니다.
+관리 화면은 `/admin/`에 있으며 Cloudflare Access로 보호합니다. 공개 센서 화면은
+`/`에서 그대로 제공됩니다. 운영 및 보안 설정은
+[`cloudflare-worker/CONTROL.md`](cloudflare-worker/CONTROL.md)를 참조하십시오.
 
 운영 프로비저닝을 다시 수행해야 할 때는
 `cloudflare-worker/scripts/provision-device-credential.ps1`을 사용합니다. 스크립트는
