@@ -10,8 +10,9 @@ This Worker converts the latest JMA AMeDAS observations into a small JSON respon
 - No API key, KV namespace or secret is required
 
 The weather route still needs no secret. Measurement ingestion is documented in
-[`INGESTION.md`](INGESTION.md) and remains unavailable until a `HYDROPONICS_DB` D1
-binding and a device credential are configured.
+[`INGESTION.md`](INGESTION.md). The production `HYDROPONICS_DB` binding and the first
+device credential have been active since 2026-08-09; ThingSpeak remains enabled for
+parallel validation.
 
 The dashboard URL is configured separately in `docs/weather-config.js` after the first Cloudflare deployment.
 
@@ -25,3 +26,20 @@ The dashboard URL is configured separately in `docs/weather-config.js` after the
 6. After deployment, copy the `workers.dev` URL and append `/v1/current`.
 
 Do not configure the GitLab mirror as a second deployment source for the same Worker.
+
+## Reproducible deployment
+
+The pinned pnpm lockfile and `pnpm-workspace.yaml` allow only Wrangler's `esbuild` and
+`workerd` install scripts. Install and verify locally with:
+
+```text
+pnpm install
+pnpm test
+pnpm deploy
+```
+
+`scripts/bootstrap-production.sql` contains the stable production site/device catalog
+and a credential digest placeholder. Run `scripts/provision-device-credential.ps1`
+from the repository root to generate an ignored bootstrap file and update the ignored
+firmware secrets file without printing the bearer token. Applying that bootstrap rotates
+the primary device credential, so deploy the matching firmware immediately afterward.

@@ -3,5 +3,13 @@
   "name": "hydroponics-jma-weather",
   "main": "src/index.js",
   "compatibility_date": "2026-08-07",
-  "workers_dev": true
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "HYDROPONICS_DB",
+      "database_name": "hydroponics",
+      "database_id": "d07738cc-cf73-48ec-b7c2-9cbd5d1de89f",
+      "migrations_dir": "migrations"
+    }
+  ]
 }

@@ -102,8 +102,9 @@ VALUES
 The generated bearer value is displayed once and must not be committed, pasted into
 an issue, or stored in D1 as plaintext.
 
-Until the D1 binding and at least one device credential exist, the existing weather
-routes continue to work and ingestion returns HTTP 503 without changing any data.
+The production D1 binding and first device credential were activated on 2026-08-09.
+If the binding is absent in another environment, the existing weather routes continue
+to work and ingestion returns HTTP 503 without changing any data.
 
 ## ESP32 parallel-validation behavior
 

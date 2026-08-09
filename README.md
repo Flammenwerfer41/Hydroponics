@@ -74,19 +74,20 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 
 ## v8.2.0 병행 검증 절차
 
-펌웨어 코드는 준비되어 있지만 D1 생성·마이그레이션과 실제 ESP32 업로드는 별도
-단계입니다.
+2026-08-09부터 운영 D1과 Worker 수집 API가 활성화되었고 v8.2.0 펌웨어가 OTA로
+설치되었습니다. ThingSpeak는 중단하지 않았으며 두 목적지의 병행 검증 단계입니다.
 
-1. `cloudflare-worker`의 D1 마이그레이션을 적용하고 `HYDROPONICS_DB`를 연결합니다.
-2. `npm run credential:create`로 장치 토큰과 SHA-256 다이제스트를 생성합니다.
-3. 다이제스트만 D1 `device_credentials`에 넣고 원본 토큰은 Git에서 제외된
-   `include/secrets.h`의 `CLOUDFLARE_DEVICE_TOKEN`에 넣습니다.
-4. Worker 배포 후 PlatformIO 빌드와 OTA는 사용자가 실행합니다.
-5. 시리얼 로그에서 ThingSpeak 성공과 `Cloudflare acknowledged reading`을 각각
+1. 시리얼 로그에서 ThingSpeak 성공과 `Cloudflare acknowledged reading`을 각각
    확인합니다.
-6. ThingSpeak와 D1 데이터를 2주간 병행 비교한 뒤 목적지 전환 여부를 판단합니다.
-7. 검증 기간에 짧은 네트워크 단절을 만들어 오래된 기록부터 중복 없이 복구되는지
+2. ThingSpeak와 D1 데이터를 2주간 병행 비교한 뒤 목적지 전환 여부를 판단합니다.
+3. 검증 기간에 짧은 네트워크 단절을 만들어 오래된 기록부터 중복 없이 복구되는지
    확인합니다.
+
+운영 프로비저닝을 다시 수행해야 할 때는
+`cloudflare-worker/scripts/provision-device-credential.ps1`을 사용합니다. 스크립트는
+토큰 원문을 출력하지 않고 Git에서 제외된 `include/secrets.h`와 `.wrangler` 작업 파일만
+갱신합니다. 실행하면 기존 장치 토큰이 교체되므로 곧바로 D1 bootstrap과 펌웨어 OTA를
+함께 수행해야 합니다.
 
 Cloudflare API와 자격 증명 등록 방법은
 [`cloudflare-worker/INGESTION.md`](cloudflare-worker/INGESTION.md)에 정리되어 있습니다.
