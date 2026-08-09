@@ -1,0 +1,5 @@
+/*
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://hydroponics-jma-weather.flammenwerfer41.workers.dev; font-src 'self'; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=()
