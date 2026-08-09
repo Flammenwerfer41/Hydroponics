@@ -3,6 +3,9 @@
 `0001_initial.sql` is the first versioned schema for sensor ingestion and future
 cloud features. IDs are stable machine identifiers; display names remain editable.
 
+`0002_history_indexes.sql` adds the measured-time and stable row-ID indexes used by
+the public history API's cursor pagination. It does not rewrite sensor data.
+
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
 replacement receives a new sensor ID while historical values continue to reference
@@ -43,3 +46,7 @@ data exists, restore the export into a new database and switch the binding inste
 of dropping tables in place.
 
 No migration or deployment is performed merely by committing these files.
+
+The history indexes can be removed with `DROP INDEX` in a later forward migration if
+necessary. Do not delete an already-recorded migration entry or edit a migration after
+it has reached production.

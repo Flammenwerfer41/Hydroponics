@@ -110,8 +110,9 @@ to work and ingestion returns HTTP 503 without changing any data.
 
 Firmware v8.2.5 keeps ThingSpeak active while validating D1. Every LittleFS v7
 record stores its boot ID, sequence, firmware version, reset reason, sensor values,
-latest valid SwitchBot telemetry, and separate ThingSpeak/Cloudflare acknowledgement
-bits.
+and latest valid SwitchBot telemetry. The small `/sensor_ack_v1.bin` sidecar stores
+independent ThingSpeak and Cloudflare acknowledgement bits without repeatedly
+copy-writing the large sensor ring.
 
 - A live reading is offered to both destinations even if the other one fails.
 - Cloudflare completion requires an explicit `accepted` or `duplicate` result.
@@ -120,6 +121,7 @@ bits.
 - Pending ThingSpeak and Cloudflare bits are updated independently.
 - An empty `CLOUDFLARE_DEVICE_TOKEN` disables only the Cloudflare destination.
 
-The current `workers.dev` TLS chain is verified against GlobalSign ECC Root CA R4.
-If Cloudflare changes the chain, verification fails closed and records remain pending
-until a firmware update supplies the new public root certificate.
+The current `workers.dev` TLS paths are verified against GlobalSign ECC Root CA R4
+and the GlobalSign Root R1 cross-signing path. If Cloudflare changes to another chain,
+verification fails closed and records remain pending until a firmware update supplies
+the new public root certificate.

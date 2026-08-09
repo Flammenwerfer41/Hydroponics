@@ -1,6 +1,6 @@
 # JMA weather Worker
 
-This Worker converts the latest JMA AMeDAS observations into a small JSON response for the public dashboard and contains the authenticated D1 measurement ingestion API.
+This Worker converts the latest JMA AMeDAS observations into a small JSON response for the public dashboard and contains the authenticated D1 measurement ingestion API plus a public, read-only measurement history API.
 
 - Tokyo (`44132`): temperature, humidity, pressure, wind and sunshine
 - Setagaya (`44126`): local precipitation
@@ -10,7 +10,8 @@ This Worker converts the latest JMA AMeDAS observations into a small JSON respon
 - No API key, KV namespace or secret is required
 
 The weather route still needs no secret. Measurement ingestion is documented in
-[`INGESTION.md`](INGESTION.md). The production `HYDROPONICS_DB` binding and the first
+[`INGESTION.md`](INGESTION.md), and history queries and exports are documented in
+[`HISTORY_API.md`](HISTORY_API.md). The production `HYDROPONICS_DB` binding and the first
 device credential have been active since 2026-08-09; ThingSpeak remains enabled for
 parallel validation.
 
