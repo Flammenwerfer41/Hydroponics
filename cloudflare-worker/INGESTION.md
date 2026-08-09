@@ -108,7 +108,7 @@ to work and ingestion returns HTTP 503 without changing any data.
 
 ## ESP32 parallel-validation behavior
 
-Firmware v8.2.0 keeps ThingSpeak active while validating D1. Every LittleFS v4
+Firmware v8.2.5 keeps ThingSpeak active while validating D1. Every LittleFS v7
 record stores its boot ID, sequence, firmware version, reset reason, sensor values,
 latest valid SwitchBot telemetry, and separate ThingSpeak/Cloudflare acknowledgement
 bits.

@@ -1,7 +1,7 @@
 # ESP32 Hydroponics Environment Monitor
 
 ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 개발 기준은 v8.2.0이며 PlatformIO와 Arduino framework를 사용합니다.
+현재 개발 기준은 v8.2.5이며 PlatformIO와 Arduino framework를 사용합니다.
 
 ## 개발 환경
 
@@ -10,7 +10,7 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - Sensors: BME280, DS18B20 water temperature sensor
 - I2C: SDA 18, SCL 19
 - 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
-- Storage: LittleFS 30일 링버퍼
+- Storage: LittleFS 14일 링버퍼
 - Integrations: ThingSpeak, Cloudflare Workers/D1, SwitchBot Plug Mini
 - Dashboard: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
 - Features: ThingSpeak·Cloudflare 병행 기록, GitHub Pages 대시보드, OTA
@@ -40,7 +40,9 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 
 일반 펌웨어 OTA는 LittleFS 파티션 전체를 덮어쓰지 않습니다. 다만 수온을
 포함하는 새 저장 형식으로 전환한 펌웨어를 처음 실행하면 기존 센서 링버퍼와
-조명 이벤트 파일을 삭제하고 `/sensor_ring_v4.bin`을 생성합니다.
+조명 이벤트 파일을 삭제하고 `/sensor_ring_v7.bin`을 생성합니다. v8.2.5는 과대했던
+v5/v6 파일을 감지하면 LittleFS를 한 번만 포맷하고, 512바이트 블록을 순차 기록해
+14일 링 파일을 초기화합니다.
 
 ## 측정 및 저장 정책
 
@@ -49,9 +51,10 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
   실패한 필드만 비워 둡니다. 두 센서가 모두 실패한 주기만 건너뜁니다.
 - BME280은 5회 연속 실패하면 ESP32를 재시작합니다. DS18B20은 단선 시 재시작보다
   재탐색이 유효하므로 매 측정 주기에 다시 탐색하면서 다른 센서의 동작을 계속합니다.
-- `/sensor_ring_v4.bin`은 측정 시각, 부팅 ID, 순번, 펌웨어 버전, 센서값,
+- `/sensor_ring_v7.bin`은 측정 시각, 부팅 ID, 순번, 펌웨어 버전, 센서값,
   SwitchBot 조명값과 목적지별 확인 비트를 포함한 48바이트 `SensorRecord`를
-  사용하며 2분 간격으로 30일을 저장합니다.
+  사용하며 2분 간격으로 14일을 저장합니다. LittleFS의 copy-on-write를 고려해
+  링 파일 두 배와 128KB 여유 공간이 파티션에 들어오는지도 부팅 시 검증합니다.
 - LittleFS 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
 - ThingSpeak와 Cloudflare 성공 상태를 별도 비트로 관리합니다. 한 목적지의 장애가
   다른 목적지의 전송 완료 상태를 바꾸지 않습니다.
@@ -72,10 +75,15 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
   `/light_events.bin`은 새 형식으로 처음 초기화할 때 삭제됩니다.
 - 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
 
-## v8.2.0 병행 검증 절차
+승인 상태는 `/sensor_ack_v1.bin` 사이드카에 슬롯당 1바이트로 저장합니다. 따라서
+ThingSpeak와 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다. 기존 v7
+링에 사이드카가 없으면 레코드의 기존 승인 비트를 한 번 이관하며 링 데이터는 지우지
+않습니다.
 
-2026-08-09부터 운영 D1과 Worker 수집 API가 활성화되었고 v8.2.0 펌웨어가 OTA로
-설치되었습니다. ThingSpeak는 중단하지 않았으며 두 목적지의 병행 검증 단계입니다.
+## v8.2.5 병행 검증 절차
+
+2026-08-09부터 운영 D1과 Worker 수집 API가 활성화되었습니다. ThingSpeak는
+중단하지 않았으며 v8.2.5부터 두 목적지의 병행 검증을 진행합니다.
 
 1. 시리얼 로그에서 ThingSpeak 성공과 `Cloudflare acknowledged reading`을 각각
    확인합니다.
