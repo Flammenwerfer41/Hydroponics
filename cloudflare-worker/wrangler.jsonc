@@ -32,5 +32,15 @@
       "binding": "JOURNAL_PHOTOS",
       "bucket_name": "hydroponics-journal-photos"
     }
+  ],
+  "ratelimits": [
+    {
+      "name": "PUBLIC_API_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
   ]
 }

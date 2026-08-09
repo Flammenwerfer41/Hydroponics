@@ -16,6 +16,9 @@ concurrency:
 jobs:
   update-report-data:
     runs-on: ubuntu-latest
+    env:
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

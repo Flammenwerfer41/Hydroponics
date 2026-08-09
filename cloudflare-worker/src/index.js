@@ -1,5 +1,10 @@
 import { handleIngestion } from "./ingestion/handler.js";
-import { handleHistory, isHistoryRoute } from "./history/handler.js";
+import {
+  handleAdminExport,
+  handleHistory,
+  isAdminExportRoute,
+  isHistoryRoute
+} from "./history/handler.js";
 import { handleAdmin, handlePublicLight } from "./control/handler.js";
 import { handleJournalAdmin } from "./journal/handler.js";
 import { pollAndReconcile } from "./control/service.js";
@@ -22,6 +27,57 @@ const PRECIPITATION_STATION = Object.freeze({
 const CACHE_SECONDS = 5 * 60;
 const STALE_AFTER_MINUTES = 30;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' https://hydroponics-jma-weather.flammenwerfer41.workers.dev",
+  "font-src 'self'",
+  "manifest-src 'self'",
+  "worker-src 'self' blob:",
+  "upgrade-insecure-requests"
+].join("; ");
+
+function secureResponse(response) {
+  const headers = new Headers(response.headers);
+  headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set(
+    "Permissions-Policy",
+    "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
+  );
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+async function publicApiRateLimit(request, environment) {
+  if (!environment.PUBLIC_API_RATE_LIMITER || request.method !== "GET") return null;
+  const address = request.headers.get("CF-Connecting-IP") || "unknown";
+  try {
+    const { success } = await environment.PUBLIC_API_RATE_LIMITER.limit({
+      key: `public-read:${address}`
+    });
+    return success ? null : jsonResponse(
+      { error: "Too many requests" },
+      429,
+      { "Cache-Control": "no-store", "Retry-After": "60" }
+    );
+  } catch (error) {
+    console.warn("Public API rate limiter unavailable; allowing request", error);
+    return null;
+  }
+}
 
 const WIND_DIRECTIONS = Object.freeze([
   { ko: "고요", ja: "静穏", en: "Calm", degrees: null },
@@ -324,9 +380,11 @@ async function currentWeather(request, context) {
   return response;
 }
 
-export default {
-  async fetch(request, environment, context) {
+async function routeRequest(request, environment, context) {
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if (isAdminExportRoute(path)) {
+      return handleAdminExport(request, environment, path);
+    }
     if (path === "/admin/api/journal" || path.startsWith("/admin/api/journal/")) {
       return handleJournalAdmin(request, environment, path);
     }
@@ -337,6 +395,9 @@ export default {
       if (environment.ASSETS) return environment.ASSETS.fetch(request);
       return jsonResponse({ error: "Not found" }, 404);
     }
+
+    const limited = await publicApiRateLimit(request, environment);
+    if (limited) return limited;
 
     if (path === "/v1/light/current" || path === "/v1/light/history") {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
@@ -386,6 +447,11 @@ export default {
         generated_at: new Date().toISOString()
       }, 502, { "Cache-Control": "no-store" });
     }
+}
+
+export default {
+  async fetch(request, environment, context) {
+    return secureResponse(await routeRequest(request, environment, context));
   },
 
   async scheduled(controller, environment, context) {

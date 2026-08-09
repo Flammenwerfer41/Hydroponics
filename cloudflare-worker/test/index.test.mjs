@@ -169,6 +169,10 @@ test("delegates non-API requests to Workers Static Assets", async () => {
   assert.equal(response.status, 200);
   assert.equal(await response.text(), "dashboard asset");
   assert.equal(requestedPath, "/styles.css");
+  assert.match(response.headers.get("Content-Security-Policy"), /frame-ancestors 'none'/);
+  assert.equal(response.headers.get("X-Frame-Options"), "DENY");
+  assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
+  assert.match(response.headers.get("Permissions-Policy"), /camera=\(self\)/);
 });
 
 test("keeps unknown API routes out of the asset namespace", async () => {
@@ -189,4 +193,25 @@ test("keeps unknown API routes out of the asset namespace", async () => {
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { error: "Not found" });
   assert.equal(assetRequests, 0);
+});
+
+test("rate limits repeated public API reads when the binding rejects a request", async () => {
+  const response = await worker.fetch(
+    new Request("https://worker.example/v1/current", {
+      headers: { "CF-Connecting-IP": "203.0.113.10" }
+    }),
+    {
+      PUBLIC_API_RATE_LIMITER: {
+        async limit({ key }) {
+          assert.equal(key, "public-read:203.0.113.10");
+          return { success: false };
+        }
+      }
+    },
+    {}
+  );
+
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("Retry-After"), "60");
+  assert.equal(response.headers.get("X-Frame-Options"), "DENY");
 });

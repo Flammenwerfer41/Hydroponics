@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import worker from "../src/index.js";
+import { handleAdminExport } from "../src/history/handler.js";
 import {
   HistoryRequestError,
   decodeCursor,
@@ -187,27 +188,45 @@ test("escapes CSV diagnostics and preserves UTF-8 BOM", () => {
   assert.match(csv, /"sensor, retry"/);
 });
 
-test("serves latest, aggregate and CSV history routes through the Worker", async () => {
+test("minimizes public history and keeps exports behind admin authentication", async () => {
   const environment = { HYDROPONICS_DB: new FakeD1() };
   const latest = await worker.fetch(new Request(
     "https://worker.example/v1/readings/latest?date=2026-08-09&metrics=air_temperature,humidity"
   ), environment, context);
   const latestBody = await latest.json();
   assert.equal(latest.status, 200);
-  assert.equal(latestBody.reading.reading_id, "boot0001:2");
+  assert.equal(latestBody.reading.reading_id, undefined);
+  assert.equal(latestBody.reading.device_id, undefined);
+  assert.equal(latestBody.reading.firmware_version, undefined);
+  assert.equal(latestBody.reading.reset_reason, undefined);
+  assert.equal(latestBody.query.device_id, undefined);
+  assert.equal(latestBody.reading.measured_at, "2026-08-09T04:20:00.000Z");
   assert.equal(latest.headers.get("X-Data-Cache"), "BYPASS");
 
   const hourly = await worker.fetch(new Request(
     "https://worker.example/v1/history/hourly?date=2026-08-09&metrics=air_temperature"
   ), environment, context);
-  assert.equal((await hourly.json()).buckets[0].start, "2026-08-09T13:00:00+09:00");
+  const hourlyBody = await hourly.json();
+  assert.equal(hourlyBody.buckets[0].start, "2026-08-09T13:00:00+09:00");
+  assert.equal(hourlyBody.buckets[0].device_id, undefined);
+  assert.equal(hourlyBody.buckets[0].site_id, undefined);
 
-  const csv = await worker.fetch(new Request(
-    "https://worker.example/v1/export.csv?date=2026-08-09&metrics=air_temperature,humidity"
+  const retiredPublicExport = await worker.fetch(new Request(
+    "https://worker.example/v1/export.csv?date=2026-08-09"
   ), environment, context);
+  assert.equal(retiredPublicExport.status, 404);
+
+  const csv = await handleAdminExport(new Request(
+    "https://worker.example/admin/api/export.csv?date=2026-08-09&metrics=air_temperature,humidity"
+  ), environment, "/admin/api/export.csv", async () => ({ email: "admin@example.com" }));
   assert.equal(csv.status, 200);
   assert.match(csv.headers.get("Content-Disposition"), /hydroponics-2026-08-09-2026-08-09\.csv/);
   assert.match(await csv.text(), /air_temperature_quality/);
+
+  const denied = await handleAdminExport(new Request(
+    "https://worker.example/admin/api/export.json?date=2026-08-09"
+  ), environment, "/admin/api/export.json", async () => null);
+  assert.equal(denied.status, 401);
 });
 
 test("keeps shared readings CORS available to both uploads and public reads", async () => {

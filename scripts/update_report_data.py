@@ -98,13 +98,16 @@ def format_timestamp(value: datetime) -> str:
     return value.isoformat(timespec="seconds")
 
 
-def fetch_json(url: str) -> dict[str, Any]:
+def fetch_json(url: str, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "HydroponicsReportBridge/2.0",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
     request = Request(
         url,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "HydroponicsReportBridge/2.0",
-        },
+        headers=headers,
     )
     with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         if response.status != 200:
@@ -126,6 +129,16 @@ def fetch_payload(
     now: datetime,
     local_timezone: ZoneInfo,
 ) -> tuple[dict[str, Any], str]:
+    access_client_id = os.environ.get("CF_ACCESS_CLIENT_ID", "").strip()
+    access_client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "").strip()
+    if not access_client_id or not access_client_secret:
+        raise RuntimeError(
+            "CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are required for the protected export"
+        )
+    access_headers = {
+        "CF-Access-Client-Id": access_client_id,
+        "CF-Access-Client-Secret": access_client_secret,
+    }
     yesterday = now.astimezone(local_timezone).date() - timedelta(days=1)
     start_date = yesterday - timedelta(days=days - 2)
     range_start = datetime.combine(start_date, time.min, local_timezone)
@@ -137,9 +150,9 @@ def fetch_payload(
         "device_id": device_id,
         "metrics": metrics,
     })
-    export_url = f"{base_url.rstrip('/')}/v1/export.json?{query}"
+    export_url = f"{base_url.rstrip('/')}/admin/api/export.json?{query}"
     light_url = f"{base_url.rstrip('/')}/v1/light/history?{urlencode({'days': days, 'granularity': 'raw'})}"
-    sensor_payload = fetch_json(export_url)
+    sensor_payload = fetch_json(export_url, access_headers)
     light_payload = fetch_json(light_url)
     readings = sensor_payload.get("readings")
     points = light_payload.get("points")
@@ -262,6 +275,8 @@ def normalize_feeds(feeds: Iterable[Any], local_timezone: ZoneInfo) -> list[tupl
             if entry_id in seen_entry_ids:
                 continue
             seen_entry_ids.add(entry_id)
+        record.pop("entry_id", None)
+        record.pop("reading_id", None)
         normalized.append((local_time, record))
     normalized.sort(key=lambda item: item[0])
     return normalized

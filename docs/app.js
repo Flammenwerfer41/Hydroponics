@@ -160,6 +160,7 @@ const TRANSLATIONS = {
     "system.aria": "장치 상태",
     "system.wifi": "Wi-Fi 신호",
     "system.lastEntry": "최신 레코드",
+    "system.received": "수신됨",
     "system.interval": "데이터 간격",
     "system.twoMinutes": "2분",
     "system.uploadCycle": "ESP32 업로드 주기",
@@ -306,6 +307,7 @@ const TRANSLATIONS = {
     "system.aria": "デバイスの状態",
     "system.wifi": "Wi-Fi信号",
     "system.lastEntry": "最新レコード",
+    "system.received": "受信済み",
     "system.interval": "データ間隔",
     "system.twoMinutes": "2分",
     "system.uploadCycle": "ESP32アップロード周期",
@@ -883,8 +885,7 @@ function renderCurrent(snapshot) {
   renderDerivedMetrics(temperature, humidity);
   element("wifiRssi").textContent = Number.isFinite(rssi) ? `${Math.round(rssi)} dBm` : "-- dBm";
   element("wifiQuality").textContent = wifiDescription(rssi);
-  const readingSequence = String(feed.reading_id || "").split(":").at(-1);
-  element("entryId").textContent = readingSequence ? `#${readingSequence}` : "#--";
+  element("entryId").textContent = feed.measured_at ? t("system.received") : "--";
   element("lightPower").textContent = fixed(lightPower, 1);
   element("lightRuntime").textContent = formatRuntime(lightMinutes);
 

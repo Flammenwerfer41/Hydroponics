@@ -1,4 +1,5 @@
 import { METRICS } from "../ingestion/contract.js";
+import { authenticateAdmin } from "../admin/access.js";
 import {
   HISTORY_SCHEMA_VERSION,
   HISTORY_TIMEZONE,
@@ -19,9 +20,12 @@ const ROUTES = Object.freeze({
   "/v1/readings/latest": "latest",
   "/v1/readings": "raw",
   "/v1/history/hourly": "hourly",
-  "/v1/history/daily": "daily",
-  "/v1/export.json": "export-json",
-  "/v1/export.csv": "export-csv"
+  "/v1/history/daily": "daily"
+});
+
+const ADMIN_EXPORT_ROUTES = Object.freeze({
+  "/admin/api/export.json": "export-json",
+  "/admin/api/export.csv": "export-csv"
 });
 
 const CACHE_SECONDS = Object.freeze({
@@ -56,13 +60,37 @@ function errorResponse(code, message, status = 400) {
   }, status, { "Cache-Control": "no-store" });
 }
 
-function generatedEnvelope(query) {
+function generatedEnvelope(query, includeIdentity = false) {
+  const queryMetadata = publicQuery(query);
+  if (!includeIdentity) {
+    delete queryMetadata.site_id;
+    delete queryMetadata.zone_id;
+    delete queryMetadata.device_id;
+  }
   return {
     schema_version: HISTORY_SCHEMA_VERSION,
     generated_at: new Date().toISOString(),
     timezone: HISTORY_TIMEZONE,
-    query: publicQuery(query),
+    query: queryMetadata,
     units: Object.fromEntries(query.metrics.map((metric) => [metric, METRICS[metric].unit]))
+  };
+}
+
+function publicReading(reading) {
+  if (!reading) return null;
+  return {
+    measured_at: reading.measured_at,
+    values: reading.values,
+    quality: reading.quality,
+    diagnostics: reading.diagnostics
+  };
+}
+
+function publicBucket(bucket) {
+  return {
+    start: bucket.start,
+    end: bucket.end,
+    metrics: bucket.metrics
   };
 }
 
@@ -97,7 +125,7 @@ async function cachedResponse(request, context, seconds, createResponse) {
 
 async function latestResponse(database, query) {
   const reading = await queryLatestReading(database, query);
-  return jsonResponse({ ...generatedEnvelope(query), reading }, 200, {
+  return jsonResponse({ ...generatedEnvelope(query), reading: publicReading(reading) }, 200, {
     "Cache-Control": `public, max-age=${CACHE_SECONDS.latest}`
   });
 }
@@ -106,7 +134,7 @@ async function rawResponse(database, query) {
   const result = await queryRawReadings(database, query);
   return jsonResponse({
     ...generatedEnvelope(query),
-    readings: result.readings,
+    readings: result.readings.map(publicReading),
     page: {
       count: result.readings.length,
       next_cursor: result.nextCursor
@@ -119,7 +147,7 @@ async function aggregateResponse(database, query, granularity) {
   return jsonResponse({
     ...generatedEnvelope(query),
     granularity,
-    buckets
+    buckets: buckets.map(publicBucket)
   }, 200, { "Cache-Control": `public, max-age=${CACHE_SECONDS[granularity]}` });
 }
 
@@ -146,7 +174,7 @@ async function exportResponse(database, query, format) {
   }
   const readings = exportRowsToReadings(rows, query.metrics);
   return jsonResponse({
-    ...generatedEnvelope(query),
+    ...generatedEnvelope(query, true),
     count: readings.length,
     readings
   }, 200, {
@@ -157,6 +185,10 @@ async function exportResponse(database, query, format) {
 
 export function isHistoryRoute(path) {
   return Object.hasOwn(ROUTES, path);
+}
+
+export function isAdminExportRoute(path) {
+  return Object.hasOwn(ADMIN_EXPORT_ROUTES, path);
 }
 
 export async function handleHistory(request, environment, context, path) {
@@ -184,14 +216,6 @@ export async function handleHistory(request, environment, context, path) {
       return cachedResponse(request, context, CACHE_SECONDS[route],
         () => aggregateResponse(environment.HYDROPONICS_DB, query, route));
     }
-    if (route === "export-json" || route === "export-csv") {
-      const query = parseHistoryQuery(new URL(request.url), "export");
-      return exportResponse(
-        environment.HYDROPONICS_DB,
-        query,
-        route === "export-csv" ? "csv" : "json"
-      );
-    }
     return errorResponse("not_found", "Not found", 404);
   } catch (error) {
     if (error instanceof HistoryRequestError || error?.code === "export_too_large") {
@@ -199,5 +223,38 @@ export async function handleHistory(request, environment, context, path) {
     }
     console.error("Measurement history query failed", error);
     return errorResponse("history_query_failed", "Measurement history is temporarily unavailable", 500);
+  }
+}
+
+export async function handleAdminExport(
+  request,
+  environment,
+  path,
+  authenticate = authenticateAdmin
+) {
+  if (request.method !== "GET") {
+    return errorResponse("method_not_allowed", "Method not allowed", 405);
+  }
+  if (!environment.HYDROPONICS_DB) {
+    return errorResponse("database_unavailable", "Measurement database is unavailable", 503);
+  }
+  if (!(await authenticate(request, environment))) {
+    return errorResponse("unauthorized", "Cloudflare Access authentication is required", 401);
+  }
+
+  const route = ADMIN_EXPORT_ROUTES[path];
+  try {
+    const query = parseHistoryQuery(new URL(request.url), "export");
+    return exportResponse(
+      environment.HYDROPONICS_DB,
+      query,
+      route === "export-csv" ? "csv" : "json"
+    );
+  } catch (error) {
+    if (error instanceof HistoryRequestError || error?.code === "export_too_large") {
+      return errorResponse(error.code, error.message, error.status ?? 400);
+    }
+    console.error("Measurement export failed", error);
+    return errorResponse("export_failed", "Measurement export is temporarily unavailable", 500);
   }
 }
