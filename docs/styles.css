@@ -279,9 +279,9 @@ h2 {
 .system-strip {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface-solid) 96%, var(--bg));
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
+  backdrop-filter: none;
 }
 
 .section {
@@ -464,9 +464,9 @@ h2 {
   padding: 17px;
   border: 1px solid color-mix(in srgb, var(--border) 86%, var(--surface-solid));
   border-radius: 18px;
-  background: color-mix(in srgb, var(--surface-solid) 91%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 96%, var(--bg));
   box-shadow: 0 13px 32px rgba(24, 61, 48, 0.09);
-  backdrop-filter: blur(14px);
+  backdrop-filter: none;
 }
 
 .scene-card h3 {
