@@ -6,6 +6,9 @@ textarea { resize:vertical; line-height:1.65; }
 .new-entry { white-space:nowrap; }
 .journal-list { display:grid; gap:12px; margin-top:16px; }
 .journal-card { width:100%; text-align:left; border:1px solid var(--line); border-radius:20px; padding:20px 22px; background:var(--panel); color:var(--text); box-shadow:var(--shadow); }
+.journal-card.has-photo { display:grid; grid-template-columns:124px minmax(0,1fr); align-items:center; gap:18px; }
+.journal-thumbnail { display:block; width:124px; height:96px; object-fit:cover; border-radius:14px; background:rgba(110,130,120,.1); }
+.journal-card-content { min-width:0; }
 .journal-card:hover { border-color:var(--green); transform:translateY(-1px); }
 .card-top,.card-values,.crop-chips { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .card-top { justify-content:space-between; }
@@ -19,6 +22,8 @@ textarea { resize:vertical; line-height:1.65; }
 .card-value { display:inline-flex; align-items:center; min-height:30px; padding:.28rem .55rem; border-radius:9px; background:rgba(110,130,120,.09); white-space:nowrap; }
 .empty-list { text-align:center; padding:54px 20px; border:1px dashed var(--line); border-radius:20px; color:var(--muted); }
 .detail-heading { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:16px; margin-bottom:16px; }
+.detail-photo { margin:0 0 16px; overflow:hidden; border:1px solid var(--line); border-radius:24px; background:rgba(110,130,120,.08); box-shadow:var(--shadow); }
+.detail-photo img { display:block; width:100%; max-height:min(70vh,760px); object-fit:contain; margin:auto; }
 .detail-title { min-width:0; }
 .detail-title p,.detail-title h2 { margin:0; }
 .detail-panel { margin-bottom:16px; }
@@ -37,6 +42,13 @@ textarea { resize:vertical; line-height:1.65; }
 .editor-heading { display:flex; align-items:center; gap:16px; margin-bottom:16px; }
 .editor-heading p,.editor-heading h2 { margin:0; }
 .form-panel { margin-bottom:16px; }
+.photo-editor { margin-top:18px; }
+.photo-preview-frame { display:grid; min-height:190px; place-items:center; overflow:hidden; border:1px dashed var(--line); border-radius:18px; background:rgba(110,130,120,.055); }
+.photo-preview-frame img { display:block; width:100%; max-height:520px; object-fit:contain; }
+.photo-preview-frame .empty-copy { margin:0; padding:42px 20px; }
+.photo-controls { display:flex; flex-wrap:wrap; gap:9px; margin-top:12px; }
+.photo-controls button { flex:1 1 150px; }
+.danger-outline { color:var(--red); border-color:color-mix(in srgb,var(--red) 45%,var(--line)); background:transparent; }
 .form-row { display:grid; gap:14px; grid-template-columns:1fr 1fr; margin-bottom:18px; }
 .wide-label { display:block; }
 .field-help,.empty-copy { color:var(--muted); font-size:.78rem; margin:9px 0 0; }
@@ -73,4 +85,9 @@ textarea { resize:vertical; line-height:1.65; }
   .editor-actions button { width:100%; }
   .detail-heading { grid-template-columns:auto 1fr; }
   .detail-heading .primary { grid-column:1/-1; width:100%; }
+  .journal-card.has-photo { grid-template-columns:88px minmax(0,1fr); gap:12px; padding:15px; }
+  .journal-thumbnail { width:88px; height:88px; border-radius:12px; }
+  .card-summary { margin:9px 0; }
+  .photo-controls { flex-direction:column; }
+  .photo-controls button { width:100%; }
 }

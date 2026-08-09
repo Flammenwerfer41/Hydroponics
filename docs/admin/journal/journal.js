@@ -1,4 +1,11 @@
-const state = { catalog: null, current: null, busy: false };
+const state = {
+  catalog: null,
+  current: null,
+  busy: false,
+  pendingPhoto: null,
+  removePhoto: false,
+  previewUrl: null
+};
 const element = (id) => document.getElementById(id);
 
 function todayJst() {
@@ -26,6 +33,19 @@ async function api(path, init) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body?.error?.message || `HTTP ${response.status}`);
   return body;
+}
+
+async function photoApi(path, init) {
+  const response = await fetch(path, { cache: "no-store", ...init });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error?.message || `HTTP ${response.status}`);
+  return body;
+}
+
+function photoUrl(url, updatedAt) {
+  if (!url) return "";
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(updatedAt || "1")}`;
 }
 
 function option(value, label) {
@@ -106,6 +126,8 @@ function renderList(entries) {
     card.type = "button";
     card.className = "journal-card";
     card.addEventListener("click", () => openEntry(entry.id));
+    const content = document.createElement("div");
+    content.className = "journal-card-content";
     const top = document.createElement("div");
     top.className = "card-top";
     const date = document.createElement("span");
@@ -132,7 +154,18 @@ function renderList(entries) {
     if (entry.solution_ph !== null) appendValue(`pH ${entry.solution_ph}`);
     if (entry.electrical_conductivity !== null) appendValue(`EC ${entry.electrical_conductivity} mS/cm`);
     if (entry.solution_added_volume !== null) appendValue(`${liquidLabel(entry.solution_added_liquid_type)} ${entry.solution_added_volume} L 보충`);
-    card.append(top, crops, summary, values);
+    content.append(top, crops, summary, values);
+    if (entry.photo) {
+      card.classList.add("has-photo");
+      const thumbnail = document.createElement("img");
+      thumbnail.className = "journal-thumbnail";
+      thumbnail.loading = "lazy";
+      thumbnail.alt = `${formatDate(entry.journal_date)} 재배 사진`;
+      thumbnail.src = photoUrl(entry.photo.thumbnail_url, entry.photo.updated_at);
+      card.append(thumbnail, content);
+    } else {
+      card.append(content);
+    }
     container.append(card);
   });
 }
@@ -225,6 +258,15 @@ function renderDetail(entry) {
   visibility.textContent = entry.visibility === "public" ? "공개 예정" : "비공개";
   element("detailUpdatedAt").textContent = `수정 ${formatUpdatedAt(entry.updated_at)}`;
 
+  const photo = element("detailPhoto");
+  const image = element("detailPhotoImage");
+  photo.hidden = !entry.photo;
+  if (entry.photo) {
+    image.src = photoUrl(entry.photo.url, entry.photo.updated_at);
+  } else {
+    image.removeAttribute("src");
+  }
+
   const commonNote = element("detailCommonNote");
   commonNote.textContent = entry.common_note || "공통 관리 기록이 없습니다.";
   commonNote.classList.toggle("muted", !entry.common_note);
@@ -294,6 +336,130 @@ function resetEditor(entry = null) {
   (entry?.sections || []).forEach(addSection);
   updateEmptySections();
   element("deleteEntry").hidden = !entry;
+  resetPhotoEditor(entry);
+}
+
+function revokePreviewUrl() {
+  if (!state.previewUrl) return;
+  URL.revokeObjectURL(state.previewUrl);
+  state.previewUrl = null;
+}
+
+function showPhotoPreview(source = "") {
+  const preview = element("photoPreview");
+  preview.hidden = !source;
+  element("photoEmpty").hidden = Boolean(source);
+  if (source) preview.src = source;
+  else preview.removeAttribute("src");
+}
+
+function resetPhotoEditor(entry) {
+  revokePreviewUrl();
+  state.pendingPhoto = null;
+  state.removePhoto = false;
+  showPhotoPreview(entry?.photo ? photoUrl(entry.photo.url, entry.photo.updated_at) : "");
+  element("removePhoto").hidden = !entry?.photo;
+  element("cameraPhotoInput").value = "";
+  element("galleryPhotoInput").value = "";
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const source = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(source);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(source);
+      reject(new Error("이 사진 형식은 브라우저에서 읽을 수 없습니다."));
+    };
+    image.src = source;
+  });
+}
+
+function canvasBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error("사진 압축에 실패했습니다.")),
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+async function resizedJpeg(image, maximumDimension, quality) {
+  const scale = Math.min(1, maximumDimension / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+  return { blob: await canvasBlob(canvas, quality), width, height };
+}
+
+async function preparePhoto(file) {
+  if (!file?.type?.startsWith("image/")) throw new Error("이미지 파일을 선택해 주세요.");
+  if (file.size > 30_000_000) throw new Error("원본 사진은 30MB 이하만 선택할 수 있습니다.");
+  const image = await loadImage(file);
+  const full = await resizedJpeg(image, 1600, 0.82);
+  const thumbnail = await resizedJpeg(image, 420, 0.74);
+  if (full.blob.size > 2_000_000) throw new Error("압축된 사진이 2MB를 초과했습니다.");
+  return {
+    photo: full.blob,
+    thumbnail: thumbnail.blob,
+    width: full.width,
+    height: full.height
+  };
+}
+
+async function choosePhoto(file) {
+  if (!file || state.busy) return;
+  setBusy(true);
+  notice("사진을 축소하고 압축하는 중입니다.");
+  try {
+    const prepared = await preparePhoto(file);
+    revokePreviewUrl();
+    state.pendingPhoto = prepared;
+    state.removePhoto = false;
+    state.previewUrl = URL.createObjectURL(prepared.photo);
+    showPhotoPreview(state.previewUrl);
+    element("removePhoto").hidden = false;
+    notice(`사진을 준비했습니다. ${(prepared.photo.size / 1024).toFixed(0)}KB`, "success");
+  } catch (error) {
+    notice(`사진 준비 실패: ${error.message}`, "error");
+  } finally {
+    element("cameraPhotoInput").value = "";
+    element("galleryPhotoInput").value = "";
+    setBusy(false);
+  }
+}
+
+async function savePhotoChange(entry) {
+  if (state.pendingPhoto) {
+    const form = new FormData();
+    form.set("photo", state.pendingPhoto.photo, "journal-photo.jpg");
+    form.set("thumbnail", state.pendingPhoto.thumbnail, "journal-thumbnail.jpg");
+    form.set("revision", String(entry.revision));
+    form.set("width", String(state.pendingPhoto.width));
+    form.set("height", String(state.pendingPhoto.height));
+    return (await photoApi(`/admin/api/journal/${entry.id}/photo`, {
+      method: "PUT",
+      body: form
+    })).entry;
+  }
+  if (state.removePhoto && entry.photo) {
+    return (await photoApi(`/admin/api/journal/${entry.id}/photo`, {
+      method: "DELETE",
+      headers: { "X-Journal-Revision": String(entry.revision) }
+    })).entry;
+  }
+  return entry;
 }
 
 function showEditor() {
@@ -311,6 +477,7 @@ function showDetail() {
 }
 
 function showList() {
+  revokePreviewUrl();
   element("editorView").hidden = true;
   element("detailView").hidden = true;
   element("listView").hidden = false;
@@ -366,7 +533,23 @@ element("journalForm").addEventListener("submit", async (event) => {
     const method = state.current ? "PUT" : "POST";
     const path = state.current ? `/admin/api/journal/${state.current.id}` : "/admin/api/journal";
     const result = await api(path, { method, body: JSON.stringify(formPayload()) });
-    renderDetail(result.entry);
+    state.current = result.entry;
+    let entry = result.entry;
+    try {
+      entry = await savePhotoChange(entry);
+    } catch (photoError) {
+      revokePreviewUrl();
+      state.pendingPhoto = null;
+      state.removePhoto = false;
+      renderDetail(entry);
+      showDetail();
+      notice(`일지는 저장했지만 사진 저장에 실패했습니다: ${photoError.message}`, "error");
+      return;
+    }
+    revokePreviewUrl();
+    state.pendingPhoto = null;
+    state.removePhoto = false;
+    renderDetail(entry);
     showDetail();
     notice("재배일지를 저장했습니다.", "success");
   } catch (error) {
@@ -395,6 +578,7 @@ element("detailBackToList").addEventListener("click", showList);
 element("editEntry").addEventListener("click", () => { resetEditor(state.current); showEditor(); notice("일지를 수정합니다."); });
 element("backToList").addEventListener("click", () => {
   if (state.current) {
+    resetPhotoEditor(state.current);
     renderDetail(state.current);
     showDetail();
     notice("수정을 취소하고 일지로 돌아왔습니다.");
@@ -403,6 +587,18 @@ element("backToList").addEventListener("click", () => {
   }
 });
 element("addSection").addEventListener("click", () => addSection());
+element("capturePhoto").addEventListener("click", () => element("cameraPhotoInput").click());
+element("selectPhoto").addEventListener("click", () => element("galleryPhotoInput").click());
+element("cameraPhotoInput").addEventListener("change", (event) => choosePhoto(event.target.files?.[0]));
+element("galleryPhotoInput").addEventListener("change", (event) => choosePhoto(event.target.files?.[0]));
+element("removePhoto").addEventListener("click", () => {
+  revokePreviewUrl();
+  state.pendingPhoto = null;
+  state.removePhoto = Boolean(state.current?.photo);
+  showPhotoPreview();
+  element("removePhoto").hidden = true;
+  notice(state.removePhoto ? "저장하면 기존 사진이 제거됩니다." : "선택한 사진을 제거했습니다.");
+});
 ["filterYear", "filterMonth", "filterDay", "filterCrop", "filterTag"].forEach((id) => {
   element(id).addEventListener("change", () => {
     if (id === "filterYear" || id === "filterMonth") refreshDayOptions();
