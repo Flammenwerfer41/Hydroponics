@@ -43,6 +43,9 @@ test("Wrangler JSON and table counts normalize", () => {
 test("count query covers every portable table", () => {
   const query = tableCountQuery();
   for (const table of DATABASE_TABLES) assert.match(query, new RegExp(`FROM "${table}"`));
+  for (const table of ["journal_days", "journal_sections", "journal_tags", "journal_section_tags", "journal_day_values"]) {
+    assert.ok(DATABASE_TABLES.includes(table), `${table} must be included in backup verification`);
+  }
 });
 
 test("count comparison identifies changed and missing tables", () => {

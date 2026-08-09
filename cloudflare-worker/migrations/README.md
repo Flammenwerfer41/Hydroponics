@@ -14,6 +14,10 @@ with the initial 07:00 ON / 21:00 OFF policy, plus the room air conditioner actu
 Fields 6-8 from `measurement_values` into the canonical `actuator_telemetry`
 table. It is idempotent and preserves the original measured timestamps.
 
+`0005_cultivation_journal.sql` adds date-based journals, crop-specific sections,
+activity tags and extensible manual values for pH, EC and nutrient-solution top-up.
+It also seeds the current basil and perilla crop catalog.
+
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
 replacement receives a new sensor ID while historical values continue to reference

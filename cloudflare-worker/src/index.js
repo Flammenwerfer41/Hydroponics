@@ -1,6 +1,7 @@
 import { handleIngestion } from "./ingestion/handler.js";
 import { handleHistory, isHistoryRoute } from "./history/handler.js";
 import { handleAdmin, handlePublicLight } from "./control/handler.js";
+import { handleJournalAdmin } from "./journal/handler.js";
 import { pollAndReconcile } from "./control/service.js";
 
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
@@ -326,6 +327,9 @@ async function currentWeather(request, context) {
 export default {
   async fetch(request, environment, context) {
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if (path === "/admin/api/journal" || path.startsWith("/admin/api/journal/")) {
+      return handleJournalAdmin(request, environment, path);
+    }
     if (path.startsWith("/admin/api/")) {
       return handleAdmin(request, environment, path);
     }
