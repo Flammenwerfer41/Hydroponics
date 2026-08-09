@@ -1,14 +1,14 @@
 /*
-  ESP32 + BME280 Hydroponics Environment Logger v8.2.6
+  ESP32 + BME280 Hydroponics Environment Logger v8.3.0
   --------------------------------------------------
-  Cloud-focused release. Sensor and SwitchBot values are sent to ThingSpeak and
-  Cloudflare in parallel. ArduinoOTA and the 30-day LittleFS sensor ring remain
+  Cloud-focused release. Physical sensor values are sent to ThingSpeak and
+  Cloudflare in parallel. ArduinoOTA and the 14-day LittleFS sensor ring remain
   available, while the ESP-hosted dashboard and HTTP API stay removed to reduce
   firmware size and runtime memory use.
 
   Each ring record carries a stable boot/sequence identity, all available sensor
-  and light telemetry, and independent acknowledgement flags for ThingSpeak and
-  Cloudflare. Legacy local files are removed during migration.
+  telemetry and independent acknowledgement flags for ThingSpeak and Cloudflare.
+  SwitchBot observation and control are owned by the Cloudflare Worker.
 */
 
 #include <Arduino.h>
@@ -25,8 +25,6 @@
 #include <ThingSpeak.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <mbedtls/md.h>
-#include <mbedtls/base64.h>
 #include <time.h>
 #include <string.h>
 #include <math.h>
@@ -85,7 +83,6 @@ HMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==
 )EOF";
 
 // ================= USER SETTINGS =================
-// SwitchBot OpenAPI v1.1 credentials. Keep TOKEN and SECRET private.
 const char* TZ_INFO = "JST-9";
 
 constexpr int I2C_SDA_PIN = 18;
@@ -110,9 +107,6 @@ constexpr uint32_t CLOUDFLARE_HTTP_TIMEOUT_MS = 15000UL;
 constexpr uint32_t CLOUDFLARE_BACKOFF_INITIAL_MS = 30000UL;
 constexpr uint32_t CLOUDFLARE_BACKOFF_MAX_MS = 30UL * 60UL * 1000UL;
 constexpr uint32_t CLOUDFLARE_BACKOFF_JITTER_MS = 5000UL;
-constexpr uint8_t SWITCHBOT_QUEUE_LENGTH = 1;
-constexpr uint32_t SWITCHBOT_TASK_STACK = 8192;
-constexpr uint32_t SWITCHBOT_HTTP_TIMEOUT_MS = 10000UL;
 static_assert(CLOUDFLARE_BULK_BATCH_SIZE <= THINGSPEAK_BULK_BATCH_SIZE,
               "Shared recovery buffer is too small");
 
@@ -123,7 +117,7 @@ constexpr bool FORMAT_LITTLEFS_IF_MOUNT_FAILED = false;
 // ================= 14-DAY RING BUFFER =================
 constexpr uint32_t RECORDS_PER_DAY = 24UL * 60UL / 2UL;
 constexpr uint32_t MAX_RECORDS = 14UL * RECORDS_PER_DAY;
-constexpr const char* LOG_FILE_PATH = "/sensor_ring_v7.bin";
+constexpr const char* LOG_FILE_PATH = "/sensor_ring_v8.bin";
 constexpr const char* ACK_FILE_PATH = "/sensor_ack_v1.bin";
 constexpr const char* LEGACY_LOG_FILE_PATH = "/sensor_ring.bin";
 constexpr const char* LEGACY_V2_LOG_FILE_PATH = "/sensor_ring_v2.bin";
@@ -131,18 +125,17 @@ constexpr const char* LEGACY_V3_LOG_FILE_PATH = "/sensor_ring_v3.bin";
 constexpr const char* LEGACY_V4_LOG_FILE_PATH = "/sensor_ring_v4.bin";
 constexpr const char* LEGACY_V5_LOG_FILE_PATH = "/sensor_ring_v5.bin";
 constexpr const char* LEGACY_V6_LOG_FILE_PATH = "/sensor_ring_v6.bin";
+constexpr const char* LEGACY_V7_LOG_FILE_PATH = "/sensor_ring_v7.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
-constexpr const char* FIRMWARE_VERSION = "8.2.6";
-constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (2UL << 8) | 6UL;
+constexpr const char* FIRMWARE_VERSION = "8.3.0";
+constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (3UL << 8);
 constexpr size_t FILESYSTEM_SAFETY_MARGIN = 128UL * 1024UL;
 constexpr size_t RING_INITIALIZE_CHUNK_BYTES = 512UL;
 
 enum RecordFlags : uint8_t {
   FLAG_BME280_VALID   = 1 << 0,
   FLAG_WATER_VALID    = 1 << 1,
-  FLAG_LIGHT_VALID    = 1 << 2,
-  FLAG_LIGHT_ON       = 1 << 3,
   FLAG_THINGSPEAK_OK  = 1 << 4,
   FLAG_CLOUDFLARE_OK  = 1 << 5
 };
@@ -156,31 +149,21 @@ struct __attribute__((packed)) SensorRecord {
   float humidity;
   float pressure;
   float waterTemperature;
-  float lightPower;
-  uint32_t lightMinutesToday;
   int8_t rssi;
   uint8_t flags;
   uint8_t resetReason;
   uint8_t reserved;
 };
-static_assert(sizeof(SensorRecord) == 48, "SensorRecord must remain 48 bytes");
+static_assert(sizeof(SensorRecord) == 40, "SensorRecord must remain 40 bytes");
 
 struct ThingSpeakJob {
   SensorRecord record;
   uint32_t slot;
-  bool lightTelemetryValid;
-  bool lightOn;
-  float lightPower;
-  uint32_t lightMinutesToday;
 };
 
 struct StoredRecordRef {
   SensorRecord record;
   uint32_t slot;
-};
-
-struct SwitchBotJob {
-  uint32_t sampleTimestamp;
 };
 
 constexpr size_t REQUIRED_LOG_BYTES = static_cast<size_t>(MAX_RECORDS) * sizeof(SensorRecord);
@@ -195,11 +178,9 @@ DallasTemperature waterTemperatureSensors(&waterTemperatureBus);
 DeviceAddress waterTemperatureAddress{};
 WiFiClient thingSpeakClient;
 QueueHandle_t thingSpeakQueue = nullptr;
-QueueHandle_t switchBotQueue = nullptr;
 SemaphoreHandle_t fsMutex = nullptr;
 SemaphoreHandle_t stateMutex = nullptr;
 TaskHandle_t thingSpeakTaskHandle = nullptr;
-TaskHandle_t switchBotTaskHandle = nullptr;
 
 uint8_t bmeAddress = 0;
 bool waterTemperatureSensorReady = false;
@@ -227,12 +208,6 @@ uint32_t nextCloudflareRecoveryMs = 0;
 uint64_t currentBootId = 0;
 uint32_t nextReadingSequence = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
-bool latestLightStateKnown = false;
-bool latestLightOn = false;
-float latestLightPower = NAN;
-uint32_t latestLightMinutesToday = 0;
-int latestSwitchBotHttpCode = 0;
-int latestSwitchBotStatusCode = 0;
 
 // ================= GENERIC HELPERS =================
 bool takeMutex(SemaphoreHandle_t mutex, TickType_t waitTicks = portMAX_DELAY) {
@@ -336,24 +311,16 @@ bool validWaterTemperature(float temperature) {
          temperature >= -55.0f && temperature <= 125.0f;
 }
 
-bool validLightTelemetry(const SensorRecord& record) {
-  return isfinite(record.lightPower) &&
-         record.lightPower >= 0.0f && record.lightPower <= 5000.0f &&
-         record.lightMinutesToday <= 1440UL;
-}
-
 bool validStoredRecord(const SensorRecord& record) {
   bool bme280Valid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
-  bool lightValid = (record.flags & FLAG_LIGHT_VALID) != 0;
   return record.timestamp >= VALID_EPOCH_MIN &&
          record.bootId != 0 &&
          record.firmwareVersion != 0 &&
          (bme280Valid || waterValid) &&
          (!bme280Valid || validBME280Data(
            record.temperature, record.humidity, record.pressure)) &&
-         (!waterValid || validWaterTemperature(record.waterTemperature)) &&
-         (!lightValid || validLightTelemetry(record));
+         (!waterValid || validWaterTemperature(record.waterTemperature));
 }
 
 void serviceNetwork() {
@@ -562,6 +529,7 @@ bool removeLegacyStorageFiles() {
     LEGACY_V4_LOG_FILE_PATH,
     LEGACY_V5_LOG_FILE_PATH,
     LEGACY_V6_LOG_FILE_PATH,
+    LEGACY_V7_LOG_FILE_PATH,
     LEGACY_LIGHT_EVENT_FILE_PATH
   };
   for (const char* path : paths) {
@@ -994,7 +962,6 @@ bool appendCloudflareReadingJson(String& payload, const SensorRecord& record) {
 
   bool bmeValid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
-  bool lightValid = (record.flags & FLAG_LIGHT_VALID) != 0;
   bool rssiValid = record.rssi < 0;
 
   payload += F("{\"schema_version\":1,\"reading_id\":\"");
@@ -1020,14 +987,6 @@ bool appendCloudflareReadingJson(String& payload, const SensorRecord& record) {
   else payload += F("null");
   payload += F(",\"water_temperature\":");
   appendJsonNumberOrNull(payload, record.waterTemperature, waterValid);
-  payload += F(",\"light_status\":");
-  if (lightValid) payload += (record.flags & FLAG_LIGHT_ON) != 0 ? '1' : '0';
-  else payload += F("null");
-  payload += F(",\"light_power\":");
-  appendJsonNumberOrNull(payload, record.lightPower, lightValid);
-  payload += F(",\"light_uptime\":");
-  if (lightValid) payload += String(record.lightMinutesToday);
-  else payload += F("null");
   payload += F("}}");
   return true;
 }
@@ -1071,7 +1030,7 @@ int postCloudflarePayload(const String& url, const String& payload, String& resp
 bool uploadToCloudflare(const SensorRecord& record) {
   if (!cloudflareConfigured()) return false;
   String payload;
-  if (!payload.reserve(640) || !appendCloudflareReadingJson(payload, record)) {
+  if (!payload.reserve(480) || !appendCloudflareReadingJson(payload, record)) {
     Serial.println("Cloudflare upload skipped: payload allocation or formatting failed.");
     return false;
   }
@@ -1099,7 +1058,7 @@ void recoverPendingCloudflareRecords() {
   }
 
   String payload;
-  if (!payload.reserve(96 + count * 560U)) {
+  if (!payload.reserve(96 + count * 430U)) {
     Serial.println("Cloudflare recovery skipped: insufficient heap for JSON payload.");
     scheduleCloudflareBackoff();
     return;
@@ -1156,11 +1115,6 @@ int uploadToThingSpeak(const ThingSpeakJob& job) {
     if ((job.record.flags & FLAG_WATER_VALID) != 0) {
       ThingSpeak.setField(5, job.record.waterTemperature);
     }
-    if (job.lightTelemetryValid) {
-      ThingSpeak.setField(6, job.lightOn ? 1 : 0);
-      ThingSpeak.setField(7, job.lightPower);
-      ThingSpeak.setField(8, static_cast<long>(job.lightMinutesToday));
-    }
     ThingSpeak.setStatus("Sensor online");
     code = ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_WRITE_API_KEY);
     lastThingSpeakWriteMs = millis();
@@ -1204,14 +1158,6 @@ bool appendBulkRecordJson(String& payload, const SensorRecord& record, bool firs
   if ((record.flags & FLAG_WATER_VALID) != 0) {
     payload += F(",\"field5\":");
     payload += String(record.waterTemperature, 3);
-  }
-  if ((record.flags & FLAG_LIGHT_VALID) != 0) {
-    payload += F(",\"field6\":");
-    payload += (record.flags & FLAG_LIGHT_ON) != 0 ? '1' : '0';
-    payload += F(",\"field7\":");
-    payload += String(record.lightPower, 3);
-    payload += F(",\"field8\":");
-    payload += String(record.lightMinutesToday);
   }
   payload += '}';
   return true;
@@ -1352,207 +1298,10 @@ bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
   ThingSpeakJob job{};
   job.record = record;
   job.slot = slot;
-  job.lightTelemetryValid = (record.flags & FLAG_LIGHT_VALID) != 0;
-  if (job.lightTelemetryValid) {
-    job.lightOn = (record.flags & FLAG_LIGHT_ON) != 0;
-    job.lightPower = record.lightPower;
-    job.lightMinutesToday = record.lightMinutesToday;
-  }
   if (xQueueSend(thingSpeakQueue, &job, 0) == pdTRUE) return true;
   droppedUploadJobs++;
   Serial.printf("Cloud upload queue full; dropped upload job. Total dropped: %lu\n",
                 static_cast<unsigned long>(droppedUploadJobs));
-  return false;
-}
-
-void snapshotLightTelemetry(SensorRecord& record) {
-  if (!takeMutex(stateMutex, portMAX_DELAY)) return;
-  bool valid = latestLightStateKnown &&
-               latestSwitchBotHttpCode == 200 &&
-               latestSwitchBotStatusCode == 100 &&
-               isfinite(latestLightPower) &&
-               latestLightPower >= 0.0f && latestLightPower <= 5000.0f &&
-               latestLightMinutesToday <= 1440UL;
-  if (valid) {
-    record.flags |= FLAG_LIGHT_VALID;
-    if (latestLightOn) record.flags |= FLAG_LIGHT_ON;
-    record.lightPower = latestLightPower;
-    record.lightMinutesToday = latestLightMinutesToday;
-  }
-  giveMutex(stateMutex);
-}
-
-// ================= SWITCHBOT TASK =================
-String makeSwitchBotNonce() {
-  char buffer[33];
-  for (int i = 0; i < 4; ++i) {
-    snprintf(buffer + i * 8, 9, "%08lx", static_cast<unsigned long>(esp_random()));
-  }
-  return String(buffer);
-}
-
-bool makeSwitchBotSignature(const String& timestampMs, const String& nonce, String& signature) {
-  String source = String(SWITCHBOT_TOKEN) + timestampMs + nonce;
-  unsigned char digest[32];
-  const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  if (!info) return false;
-  if (mbedtls_md_hmac(info,
-                      reinterpret_cast<const unsigned char*>(SWITCHBOT_SECRET),
-                      strlen(SWITCHBOT_SECRET),
-                      reinterpret_cast<const unsigned char*>(source.c_str()),
-                      source.length(), digest) != 0) return false;
-  unsigned char output[64];
-  size_t outputLength = 0;
-  if (mbedtls_base64_encode(output, sizeof(output), &outputLength,
-                            digest, sizeof(digest)) != 0) return false;
-  output[outputLength] = '\0';
-  signature = String(reinterpret_cast<char*>(output));
-  return true;
-}
-
-bool extractJsonString(const String& json, const char* key, String& value) {
-  String token = String("\"") + key + "\"";
-  int position = json.indexOf(token);
-  if (position < 0) return false;
-  position = json.indexOf(':', position + token.length());
-  if (position < 0) return false;
-  position = json.indexOf('"', position + 1);
-  if (position < 0) return false;
-  int end = json.indexOf('"', position + 1);
-  if (end < 0) return false;
-  value = json.substring(position + 1, end);
-  return true;
-}
-
-bool extractJsonNumber(const String& json, const char* key, double& value) {
-  String token = String("\"") + key + "\"";
-  int position = json.indexOf(token);
-  if (position < 0) return false;
-  position = json.indexOf(':', position + token.length());
-  if (position < 0) return false;
-  position++;
-  while (position < static_cast<int>(json.length()) &&
-         (json[position] == ' ' || json[position] == '\t')) position++;
-  int end = position;
-  while (end < static_cast<int>(json.length()) &&
-         (isDigit(json[end]) || json[end] == '-' || json[end] == '+' ||
-          json[end] == '.' || json[end] == 'e' || json[end] == 'E')) end++;
-  if (end == position) return false;
-  value = json.substring(position, end).toDouble();
-  return isfinite(value);
-}
-
-bool querySwitchBot(uint32_t sampleTimestamp) {
-  if (WiFi.status() != WL_CONNECTED || sampleTimestamp < VALID_EPOCH_MIN) return false;
-
-  uint64_t timestampMilliseconds = static_cast<uint64_t>(time(nullptr)) * 1000ULL;
-  char timestampBuffer[24];
-  snprintf(timestampBuffer, sizeof(timestampBuffer), "%llu",
-           static_cast<unsigned long long>(timestampMilliseconds));
-  String timestamp(timestampBuffer);
-  String nonce = makeSwitchBotNonce();
-  String signature;
-  if (!makeSwitchBotSignature(timestamp, nonce, signature)) {
-    Serial.println("SwitchBot signature creation failed.");
-    return false;
-  }
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  String url = String("https://api.switch-bot.com/v1.1/devices/") +
-               SWITCHBOT_DEVICE_ID + "/status";
-  if (!http.begin(client, url)) {
-    Serial.println("SwitchBot HTTP begin failed.");
-    return false;
-  }
-  http.setTimeout(SWITCHBOT_HTTP_TIMEOUT_MS);
-  http.addHeader("Authorization", SWITCHBOT_TOKEN);
-  http.addHeader("sign", signature);
-  http.addHeader("t", timestamp);
-  http.addHeader("nonce", nonce);
-  http.addHeader("Content-Type", "application/json; charset=utf8");
-
-  int httpCode = http.GET();
-  String body = httpCode > 0 ? http.getString() : String();
-  http.end();
-
-  double apiStatus = 0;
-  double voltage = 0;
-  double power = 0;
-  double currentMilliamps = 0;
-  double minutesToday = 0;
-  String powerState;
-  bool parsed = httpCode == 200 &&
-                extractJsonNumber(body, "statusCode", apiStatus) && apiStatus == 100 &&
-                extractJsonString(body, "power", powerState) &&
-                extractJsonNumber(body, "voltage", voltage) &&
-                extractJsonNumber(body, "weight", power) &&
-                extractJsonNumber(body, "electricCurrent", currentMilliamps) &&
-                extractJsonNumber(body, "electricityOfDay", minutesToday);
-
-  if (!parsed) {
-    if (takeMutex(stateMutex, portMAX_DELAY)) {
-      latestSwitchBotHttpCode = httpCode;
-      latestSwitchBotStatusCode = static_cast<int>(apiStatus);
-      giveMutex(stateMutex);
-    }
-    Serial.printf("SwitchBot query failed: HTTP %d, API %.0f\n", httpCode, apiStatus);
-    return false;
-  }
-
-  bool on = powerState == "on";
-  uint32_t runtimeMinutes = minutesToday >= 0 ? static_cast<uint32_t>(minutesToday) : 0;
-  if (takeMutex(stateMutex, portMAX_DELAY)) {
-    latestLightStateKnown = true;
-    latestLightOn = on;
-    latestLightPower = static_cast<float>(power);
-    latestLightMinutesToday = runtimeMinutes;
-    latestSwitchBotHttpCode = httpCode;
-    latestSwitchBotStatusCode = static_cast<int>(apiStatus);
-    giveMutex(stateMutex);
-  }
-
-  Serial.printf("SwitchBot: %s, %.1f W, %.1f V, %.3f A, %u min today\n",
-                on ? "ON" : "OFF", power, voltage, currentMilliamps / 1000.0,
-                static_cast<unsigned>(runtimeMinutes));
-  return true;
-}
-
-void switchBotTask(void* parameter) {
-  SwitchBotJob job{};
-  for (;;) {
-    if (xQueueReceive(switchBotQueue, &job, portMAX_DELAY) == pdTRUE) {
-      while (otaInProgress) vTaskDelay(pdMS_TO_TICKS(100));
-      querySwitchBot(job.sampleTimestamp);
-    }
-  }
-}
-
-bool setupSwitchBotTask() {
-  switchBotQueue = xQueueCreate(SWITCHBOT_QUEUE_LENGTH, sizeof(SwitchBotJob));
-  if (!switchBotQueue) {
-    Serial.println("ERROR: SwitchBot queue creation failed.");
-    return false;
-  }
-  BaseType_t result = xTaskCreatePinnedToCore(
-    switchBotTask, "SwitchBot", SWITCHBOT_TASK_STACK,
-    nullptr, 1, &switchBotTaskHandle, 0);
-  if (result != pdPASS) {
-    Serial.println("ERROR: SwitchBot task creation failed.");
-    vQueueDelete(switchBotQueue);
-    switchBotQueue = nullptr;
-    return false;
-  }
-  Serial.println("SwitchBot task started.");
-  return true;
-}
-
-bool queueSwitchBotQuery(uint32_t sampleTimestamp) {
-  if (!switchBotQueue || sampleTimestamp < VALID_EPOCH_MIN) return false;
-  SwitchBotJob job{sampleTimestamp};
-  if (xQueueSend(switchBotQueue, &job, 0) == pdTRUE) return true;
-  Serial.println("SwitchBot query skipped: previous query still pending.");
   return false;
 }
 
@@ -1622,7 +1371,6 @@ void performMeasurementCycle() {
   record.rssi = static_cast<int8_t>(constrain(rssi, -127, 0));
   if (bme280Valid) record.flags |= FLAG_BME280_VALID;
   if (waterTemperatureValid) record.flags |= FLAG_WATER_VALID;
-  snapshotLightTelemetry(record);
 
   bool localSaved = false;
   uint32_t writtenSlot = UINT32_MAX;
@@ -1633,7 +1381,6 @@ void performMeasurementCycle() {
     }
   }
 
-  if (isTimeValid(now)) queueSwitchBotQuery(static_cast<uint32_t>(now));
   if (!queueThingSpeakUpload(record, localSaved ? writtenSlot : UINT32_MAX)) {
     if (takeMutex(stateMutex, portMAX_DELAY)) {
       if (consecutiveUploadFailures < UINT32_MAX) consecutiveUploadFailures++;
@@ -1679,7 +1426,6 @@ void setup() {
   Serial.printf("Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
   setupThingSpeakTask();
-  setupSwitchBotTask();
   lastSampleMs = millis() - SAMPLE_INTERVAL_MS;
   Serial.println("Setup complete.");
 }
