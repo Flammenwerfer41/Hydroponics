@@ -1,4 +1,5 @@
 import { handleIngestion } from "./ingestion/handler.js";
+import { handleHistory, isHistoryRoute } from "./history/handler.js";
 
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
 const JMA_FORECAST_URL =
@@ -323,8 +324,19 @@ async function currentWeather(request, context) {
 export default {
   async fetch(request, environment, context) {
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
-    if (path === "/v1/readings" || path === "/v1/readings/bulk") {
+    if ((request.method === "POST" || request.method === "OPTIONS") &&
+        (path === "/v1/readings" || path === "/v1/readings/bulk")) {
       return handleIngestion(request, environment, context, path);
+    }
+
+    if (isHistoryRoute(path)) {
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400"
+      } });
+      return handleHistory(request, environment, context, path);
     }
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
