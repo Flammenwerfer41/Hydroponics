@@ -99,6 +99,9 @@ ThingSpeak와 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하�
 
 Cloudflare API와 자격 증명 등록 방법은
 [`cloudflare-worker/INGESTION.md`](cloudflare-worker/INGESTION.md)에 정리되어 있습니다.
+측정 이력 조회·내보내기는 [`cloudflare-worker/HISTORY_API.md`](cloudflare-worker/HISTORY_API.md),
+D1/R2 백업과 복구 훈련은 [`cloudflare-worker/BACKUP_RECOVERY.md`](cloudflare-worker/BACKUP_RECOVERY.md)를
+참조하십시오.
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
 

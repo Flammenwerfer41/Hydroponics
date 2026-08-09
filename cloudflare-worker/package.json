@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "backup:run": "node scripts/backup-d1-to-r2.mjs",
     "credential:create": "node scripts/create-device-credential.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "restore:verify": "node scripts/restore-d1-backup.mjs",
     "test": "node --test"
   },
   "devDependencies": {

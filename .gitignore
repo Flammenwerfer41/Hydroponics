@@ -2,6 +2,8 @@
 .vscode/
 cloudflare-worker/node_modules/
 cloudflare-worker/.wrangler/
+cloudflare-worker/.backup-work/
+.wrangler/
 
 # Device credentials must never be committed.
 include/secrets.h

@@ -1,0 +1,40 @@
+{
+  "rules": [
+    {
+      "id": "expire-daily-d1-backups",
+      "enabled": true,
+      "conditions": { "prefix": "d1/daily/" },
+      "deleteObjectsTransition": { "condition": { "type": "Age", "maxAge": 864000 } }
+    },
+    {
+      "id": "expire-weekly-d1-backups",
+      "enabled": true,
+      "conditions": { "prefix": "d1/weekly/" },
+      "deleteObjectsTransition": { "condition": { "type": "Age", "maxAge": 7776000 } }
+    },
+    {
+      "id": "expire-daily-manifests",
+      "enabled": true,
+      "conditions": { "prefix": "manifests/daily/" },
+      "deleteObjectsTransition": { "condition": { "type": "Age", "maxAge": 864000 } }
+    },
+    {
+      "id": "expire-weekly-manifests",
+      "enabled": true,
+      "conditions": { "prefix": "manifests/weekly/" },
+      "deleteObjectsTransition": { "condition": { "type": "Age", "maxAge": 7776000 } }
+    },
+    {
+      "id": "expire-portable-sensor-archives",
+      "enabled": true,
+      "conditions": { "prefix": "sensor/daily/" },
+      "deleteObjectsTransition": { "condition": { "type": "Age", "maxAge": 63072000 } }
+    },
+    {
+      "id": "abort-incomplete-uploads",
+      "enabled": true,
+      "conditions": {},
+      "abortMultipartUploadsTransition": { "condition": { "type": "Age", "maxAge": 604800 } }
+    }
+  ]
+}
