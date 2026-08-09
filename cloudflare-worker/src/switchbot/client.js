@@ -1,7 +1,11 @@
 const API_BASE = "https://api.switch-bot.com/v1.1";
 
 function required(environment, name) {
-  const value = environment?.[name];
+  // Wrangler can receive a UTF-8 BOM or a line ending when a secret is piped
+  // from Windows PowerShell. Neither is part of a SwitchBot credential.
+  const value = typeof environment?.[name] === "string"
+    ? environment[name].replace(/^\uFEFF/, "").trim()
+    : environment?.[name];
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${name} is not configured`);
   }

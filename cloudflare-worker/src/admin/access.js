@@ -11,10 +11,16 @@ function signatureBytes(value) {
 }
 
 function teamIssuer(environment) {
-  const domain = environment.CF_ACCESS_TEAM_DOMAIN;
+  const domain = typeof environment.CF_ACCESS_TEAM_DOMAIN === "string"
+    ? environment.CF_ACCESS_TEAM_DOMAIN.replace(/^\uFEFF/, "").trim()
+    : environment.CF_ACCESS_TEAM_DOMAIN;
   if (!domain) return null;
   const host = domain.includes(".") ? domain : `${domain}.cloudflareaccess.com`;
   return `https://${host}`;
+}
+
+function normalizedIssuer(value) {
+  return typeof value === "string" ? value.replace(/\/+$/, "") : "";
 }
 
 async function accessKeys(issuer) {
@@ -32,7 +38,9 @@ function hasAudience(payload, expected) {
 
 export async function authenticateAdmin(request, environment) {
   const issuer = teamIssuer(environment);
-  const audience = environment.CF_ACCESS_AUD;
+  const audience = typeof environment.CF_ACCESS_AUD === "string"
+    ? environment.CF_ACCESS_AUD.replace(/^\uFEFF/, "").trim()
+    : environment.CF_ACCESS_AUD;
   if (!issuer || !audience) return null;
   const token = request.headers.get("Cf-Access-Jwt-Assertion");
   if (!token) return null;
@@ -43,7 +51,10 @@ export async function authenticateAdmin(request, environment) {
     const header = decodePart(parts[0]);
     const payload = decodePart(parts[1]);
     if (header.alg !== "RS256" || !header.kid) return null;
-    if (payload.iss !== issuer || !hasAudience(payload, audience)) return null;
+    // Access currently emits an issuer with a trailing slash for some login
+    // methods, while the certificates endpoint and configured team domain do
+    // not require one. Compare the canonical origins rather than their slash.
+    if (normalizedIssuer(payload.iss) !== normalizedIssuer(issuer) || !hasAudience(payload, audience)) return null;
     const now = Math.floor(Date.now() / 1000);
     if (!Number.isFinite(payload.exp) || payload.exp <= now) return null;
     if (Number.isFinite(payload.nbf) && payload.nbf > now + 30) return null;
