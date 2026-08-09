@@ -61,8 +61,11 @@ INSERT OR IGNORE INTO actuators
   (id, site_id, zone_id, device_id, name, kind, external_provider, external_id,
    created_at, updated_at)
 VALUES
-  ('tower-01-grow-light', 'home-lab', 'tower-01', 'esp32-01', 'Grow light',
-   'power_switch', 'SwitchBot', 'configured-in-device-secrets',
+  ('tower-01-grow-light', 'home-lab', 'tower-01', NULL, 'Grow light',
+   'power_switch', 'SwitchBot', 'configured-in-worker-secrets',
+   '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z'),
+  ('room-air-conditioner', 'home-lab', 'tower-01', NULL, 'Room air conditioner',
+   'air_conditioner', 'SwitchBot', 'configured-in-worker-secrets',
    '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z');
 
 INSERT INTO device_credentials

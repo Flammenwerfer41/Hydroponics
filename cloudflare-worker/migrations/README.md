@@ -6,6 +6,10 @@ cloud features. IDs are stable machine identifiers; display names remain editabl
 `0002_history_indexes.sql` adds the measured-time and stable row-ID indexes used by
 the public history API's cursor pagination. It does not rewrite sensor data.
 
+`0003_actuator_control.sql` moves grow-light telemetry and control ownership to the
+Worker. It adds independent actuator telemetry, command history and a JST schedule
+with the initial 07:00 ON / 21:00 OFF policy, plus the room air conditioner actuator.
+
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
 replacement receives a new sensor ID while historical values continue to reference

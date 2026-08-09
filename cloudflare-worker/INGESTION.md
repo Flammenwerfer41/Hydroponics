@@ -30,10 +30,7 @@ identity comes from its bearer credential, not from a caller-controlled `device_
     "humidity": null,
     "pressure": 1007.8,
     "wifi_rssi": -57,
-    "water_temperature": 24.6,
-    "light_status": 1,
-    "light_power": 73.7,
-    "light_uptime": 180
+    "water_temperature": 24.6
   },
   "quality": {
     "humidity": "missing"
@@ -108,9 +105,9 @@ to work and ingestion returns HTTP 503 without changing any data.
 
 ## ESP32 parallel-validation behavior
 
-Firmware v8.2.6 keeps ThingSpeak active while validating D1. Every LittleFS v7
-record stores its boot ID, sequence, firmware version, reset reason, sensor values,
-and latest valid SwitchBot telemetry. The small `/sensor_ack_v1.bin` sidecar stores
+Firmware v8.3.0 keeps ThingSpeak active while validating D1. Every LittleFS v8
+record stores its boot ID, sequence, firmware version, reset reason and physical
+sensor values. The small `/sensor_ack_v1.bin` sidecar stores
 independent ThingSpeak and Cloudflare acknowledgement bits without repeatedly
 copy-writing the large sensor ring.
 
@@ -120,6 +117,10 @@ copy-writing the large sensor ring.
 - Failed recovery uses exponential backoff from 30 seconds to 30 minutes with jitter.
 - Pending ThingSpeak and Cloudflare bits are updated independently.
 - An empty `CLOUDFLARE_DEVICE_TOKEN` disables only the Cloudflare destination.
+
+The legacy light metrics remain valid for imported ThingSpeak history, but v8.3.0
+does not submit them. Current light telemetry is recorded independently by the Worker
+in `actuator_telemetry`.
 
 The current `workers.dev` TLS paths are verified against GlobalSign ECC Root CA R4
 and the GlobalSign Root R1 cross-signing path. If Cloudflare changes to another chain,

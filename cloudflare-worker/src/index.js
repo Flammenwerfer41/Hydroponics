@@ -1,5 +1,7 @@
 import { handleIngestion } from "./ingestion/handler.js";
 import { handleHistory, isHistoryRoute } from "./history/handler.js";
+import { handleAdmin, handlePublicLight } from "./control/handler.js";
+import { pollAndReconcile } from "./control/service.js";
 
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
 const JMA_FORECAST_URL =
@@ -324,9 +326,22 @@ async function currentWeather(request, context) {
 export default {
   async fetch(request, environment, context) {
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if (path.startsWith("/admin/api/")) {
+      return handleAdmin(request, environment, path);
+    }
     if (!path.startsWith("/v1/")) {
       if (environment.ASSETS) return environment.ASSETS.fetch(request);
       return jsonResponse({ error: "Not found" }, 404);
+    }
+
+    if (path === "/v1/light/current" || path === "/v1/light/history") {
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400"
+      } });
+      return handlePublicLight(request, environment, path);
     }
 
     if ((request.method === "POST" || request.method === "OPTIONS") &&
@@ -367,5 +382,16 @@ export default {
         generated_at: new Date().toISOString()
       }, 502, { "Cache-Control": "no-store" });
     }
+  },
+
+  async scheduled(controller, environment, context) {
+    if (!environment.HYDROPONICS_DB) {
+      console.error("Scheduled control skipped: D1 binding is unavailable");
+      return;
+    }
+    context.waitUntil(
+      pollAndReconcile(environment, new Date(controller.scheduledTime))
+        .catch((error) => console.error("Scheduled SwitchBot reconciliation failed", error))
+    );
   }
 };
