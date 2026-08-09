@@ -1,11 +1,14 @@
 # JMA weather Worker
 
-This Worker converts the latest JMA AMeDAS observations into a small JSON response for the public dashboard and contains the authenticated D1 measurement ingestion API plus a public, read-only measurement history API.
+This Worker hosts the public dashboard with Workers Static Assets, converts the latest
+JMA AMeDAS observations into a small JSON response, and contains the authenticated D1
+measurement ingestion API plus a public, read-only measurement history API.
 
 - Tokyo (`44132`): temperature, humidity, pressure, wind and sunshine
 - Setagaya (`44126`): local precipitation
 - Tokyo district (`130010`): JMA weather-distribution forecast at three-hour intervals
-- Endpoint: `/v1/current` (the root path returns the same response)
+- Dashboard: `/`
+- Weather endpoint: `/v1/current`
 - Cache: five minutes
 - No API key, KV namespace or secret is required
 
@@ -15,7 +18,9 @@ The weather route still needs no secret. Measurement ingestion is documented in
 device credential have been active since 2026-08-09; ThingSpeak remains enabled for
 parallel validation.
 
-The dashboard URL is configured separately in `docs/weather-config.js` after the first Cloudflare deployment.
+Static asset routing, verification and rollback are documented in
+[`DASHBOARD_DEPLOYMENT.md`](DASHBOARD_DEPLOYMENT.md). `docs/weather-config.js` keeps
+same-origin API calls on the primary Worker and points the Pages mirrors back to that Worker.
 
 ## Cloudflare dashboard setup
 

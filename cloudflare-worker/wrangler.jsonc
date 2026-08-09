@@ -4,6 +4,15 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-07",
   "workers_dev": true,
+  "assets": {
+    "directory": "../docs",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none",
+    "run_worker_first": [
+      "/v1/*"
+    ]
+  },
   "d1_databases": [
     {
       "binding": "HYDROPONICS_DB",

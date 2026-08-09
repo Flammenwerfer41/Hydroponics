@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
+import worker, {
   buildForecastPayload,
   buildWeatherPayload,
   calculateApparentTemperature,
@@ -147,4 +147,46 @@ test("combines Tokyo weather, temperature and wind forecast by timestamp", () =>
     wind_speed: 4,
     wind_range: "10 14"
   });
+});
+
+test("delegates non-API requests to Workers Static Assets", async () => {
+  let requestedPath = null;
+  const response = await worker.fetch(
+    new Request("https://worker.example/styles.css"),
+    {
+      ASSETS: {
+        fetch(request) {
+          requestedPath = new URL(request.url).pathname;
+          return new Response("dashboard asset", {
+            headers: { "Content-Type": "text/css" }
+          });
+        }
+      }
+    },
+    {}
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "dashboard asset");
+  assert.equal(requestedPath, "/styles.css");
+});
+
+test("keeps unknown API routes out of the asset namespace", async () => {
+  let assetRequests = 0;
+  const response = await worker.fetch(
+    new Request("https://worker.example/v1/unknown"),
+    {
+      ASSETS: {
+        fetch() {
+          assetRequests += 1;
+          return new Response("unexpected");
+        }
+      }
+    },
+    {}
+  );
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "Not found" });
+  assert.equal(assetRequests, 0);
 });

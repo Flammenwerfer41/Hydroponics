@@ -324,6 +324,11 @@ async function currentWeather(request, context) {
 export default {
   async fetch(request, environment, context) {
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if (!path.startsWith("/v1/")) {
+      if (environment.ASSETS) return environment.ASSETS.fetch(request);
+      return jsonResponse({ error: "Not found" }, 404);
+    }
+
     if ((request.method === "POST" || request.method === "OPTIONS") &&
         (path === "/v1/readings" || path === "/v1/readings/bulk")) {
       return handleIngestion(request, environment, context, path);
@@ -349,7 +354,7 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405, { "Allow": "GET, OPTIONS" });
     }
 
-    if (path !== "/" && path !== "/v1/current") {
+    if (path !== "/v1/current") {
       return jsonResponse({ error: "Not found" }, 404);
     }
 

@@ -12,8 +12,9 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 14일 링버퍼
 - Integrations: ThingSpeak, Cloudflare Workers/D1, SwitchBot Plug Mini
-- Dashboard: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
-- Features: ThingSpeak·Cloudflare 병행 기록, GitHub Pages 대시보드, OTA
+- Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.woosukang.workers.dev/)
+- Emergency mirror: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
+- Features: ThingSpeak·Cloudflare 병행 기록, Cloudflare 대시보드, OTA
 
 ## 처음 설정
 
@@ -101,7 +102,9 @@ Cloudflare API와 자격 증명 등록 방법은
 [`cloudflare-worker/INGESTION.md`](cloudflare-worker/INGESTION.md)에 정리되어 있습니다.
 측정 이력 조회·내보내기는 [`cloudflare-worker/HISTORY_API.md`](cloudflare-worker/HISTORY_API.md),
 D1/R2 백업과 복구 훈련은 [`cloudflare-worker/BACKUP_RECOVERY.md`](cloudflare-worker/BACKUP_RECOVERY.md)를
-참조하십시오.
+참조하십시오. 대시보드 배포와 롤백은
+[`cloudflare-worker/DASHBOARD_DEPLOYMENT.md`](cloudflare-worker/DASHBOARD_DEPLOYMENT.md)에
+정리되어 있습니다.
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
 
