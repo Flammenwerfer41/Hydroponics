@@ -4,6 +4,8 @@ cloudflare-worker/node_modules/
 cloudflare-worker/.wrangler/
 cloudflare-worker/.backup-work/
 .wrangler/
+__pycache__/
+*.pyc
 
 # Device credentials must never be committed.
 include/secrets.h

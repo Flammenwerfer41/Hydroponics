@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a compact, stable report-data.json from a public ThingSpeak channel."""
+"""Build a compact daily report bridge from Cloudflare D1 telemetry."""
 
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 SCHEMA_VERSION = 1
-DEFAULT_CHANNEL_ID = 3436358
+DEFAULT_BASE_URL = "https://hydroponics-jma-weather.flammenwerfer41.workers.dev"
+DEFAULT_DEVICE_ID = "esp32-01"
 DEFAULT_TIMEZONE = "Asia/Tokyo"
 DEFAULT_FETCH_DAYS = 8
 EXPECTED_INTERVAL_SECONDS = 120
@@ -57,6 +58,19 @@ SUMMARY_FIELDS = (
 )
 
 
+def load_timezone(name: str) -> ZoneInfo | timezone:
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        if name == "Asia/Tokyo":
+            return timezone(timedelta(hours=9), name)
+        raise
+
+
+def timezone_name(value: ZoneInfo | timezone) -> str:
+    return getattr(value, "key", None) or value.tzname(None) or DEFAULT_TIMEZONE
+
+
 def finite_number(value: Any, *, integer: bool = False) -> int | float | None:
     if value is None or value == "":
         return None
@@ -84,26 +98,115 @@ def format_timestamp(value: datetime) -> str:
     return value.isoformat(timespec="seconds")
 
 
-def fetch_payload(channel_id: int, days: int) -> tuple[dict[str, Any], str]:
-    query = urlencode({"days": days})
-    url = f"https://api.thingspeak.com/channels/{channel_id}/feeds.json?{query}"
+def fetch_json(url: str) -> dict[str, Any]:
     request = Request(
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "HydroponicsReportBridge/1.0",
+            "User-Agent": "HydroponicsReportBridge/2.0",
         },
     )
     with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         if response.status != 200:
-            raise RuntimeError(f"ThingSpeak returned HTTP {response.status}")
+            raise RuntimeError(f"Cloudflare API returned HTTP {response.status}")
         body = response.read()
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise RuntimeError("ThingSpeak response was not valid UTF-8 JSON") from error
+        raise RuntimeError("Cloudflare API response was not valid UTF-8 JSON") from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("Cloudflare API response root must be an object")
+    return payload
+
+
+def fetch_payload(
+    base_url: str,
+    device_id: str,
+    days: int,
+    now: datetime,
+    local_timezone: ZoneInfo,
+) -> tuple[dict[str, Any], str]:
+    yesterday = now.astimezone(local_timezone).date() - timedelta(days=1)
+    start_date = yesterday - timedelta(days=days - 2)
+    range_start = datetime.combine(start_date, time.min, local_timezone)
+    range_end = datetime.combine(yesterday + timedelta(days=1), time.min, local_timezone)
+    metrics = "air_temperature,humidity,pressure,wifi_rssi,water_temperature"
+    query = urlencode({
+        "from": format_timestamp(range_start),
+        "to": format_timestamp(range_end),
+        "device_id": device_id,
+        "metrics": metrics,
+    })
+    export_url = f"{base_url.rstrip('/')}/v1/export.json?{query}"
+    light_url = f"{base_url.rstrip('/')}/v1/light/history?{urlencode({'days': days, 'granularity': 'raw'})}"
+    sensor_payload = fetch_json(export_url)
+    light_payload = fetch_json(light_url)
+    readings = sensor_payload.get("readings")
+    points = light_payload.get("points")
+    if not isinstance(readings, list):
+        raise RuntimeError("Cloudflare export is missing the readings array")
+    if not isinstance(points, list):
+        raise RuntimeError("Cloudflare light history is missing the points array")
+
+    light_records: list[tuple[datetime, dict[str, Any]]] = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        try:
+            timestamp = parse_timestamp(point.get("time"))
+        except ValueError:
+            continue
+        light_records.append((timestamp, point))
+    light_records.sort(key=lambda item: item[0])
+
+    feeds: list[dict[str, Any]] = []
+    light_index = 0
+    for reading in sorted(
+        (item for item in readings if isinstance(item, dict)),
+        key=lambda item: item.get("measured_at") or "",
+    ):
+        measured_at = reading.get("measured_at")
+        try:
+            reading_time = parse_timestamp(measured_at)
+        except ValueError:
+            continue
+        while (
+            light_index + 1 < len(light_records)
+            and light_records[light_index + 1][0] <= reading_time
+        ):
+            light_index += 1
+        nearest = None
+        candidates = light_records[max(0, light_index - 1):light_index + 2]
+        if candidates:
+            candidate_time, candidate = min(candidates, key=lambda item: abs((item[0] - reading_time).total_seconds()))
+            if abs((candidate_time - reading_time).total_seconds()) <= GAP_THRESHOLD_SECONDS:
+                nearest = candidate
+        values = reading.get("values") if isinstance(reading.get("values"), dict) else {}
+        feed = {
+            "created_at": measured_at,
+            "reading_id": reading.get("reading_id"),
+            "field1": values.get("air_temperature"),
+            "field2": values.get("humidity"),
+            "field3": values.get("pressure"),
+            "field4": values.get("wifi_rssi"),
+            "field5": values.get("water_temperature"),
+            "field6": nearest.get("light_status") if nearest else None,
+            "field7": nearest.get("light_power") if nearest else None,
+            "field8": nearest.get("light_uptime") if nearest else None,
+        }
+        feeds.append(feed)
+
+    payload = {
+        "channel": {
+            "id": device_id,
+            "name": "Hydroponics Cloudflare telemetry",
+            "description": "ESP32 sensor and SwitchBot actuator telemetry stored in Cloudflare D1",
+            **FIELD_NAMES,
+        },
+        "feeds": feeds,
+    }
     validate_payload(payload)
-    return payload, url
+    return payload, export_url
 
 
 def load_payload(path: Path) -> dict[str, Any]:
@@ -115,11 +218,11 @@ def load_payload(path: Path) -> dict[str, Any]:
 
 def validate_payload(payload: Any) -> None:
     if not isinstance(payload, dict):
-        raise RuntimeError("ThingSpeak response root must be an object")
+        raise RuntimeError("report source root must be an object")
     if not isinstance(payload.get("channel"), dict):
-        raise RuntimeError("ThingSpeak response is missing channel metadata")
+        raise RuntimeError("report source is missing channel metadata")
     if not isinstance(payload.get("feeds"), list):
-        raise RuntimeError("ThingSpeak response is missing the feeds array")
+        raise RuntimeError("report source is missing the feeds array")
 
 
 def normalize_feed(feed: dict[str, Any], local_timezone: ZoneInfo) -> tuple[datetime, dict[str, Any]]:
@@ -128,6 +231,7 @@ def normalize_feed(feed: dict[str, Any], local_timezone: ZoneInfo) -> tuple[date
     normalized: dict[str, Any] = {
         "time": format_timestamp(local_time),
         "entry_id": finite_number(feed.get("entry_id"), integer=True),
+        "reading_id": feed.get("reading_id") if isinstance(feed.get("reading_id"), str) else None,
     }
     for source_name, output_name in NORMALIZED_FIELDS.items():
         normalized[output_name] = finite_number(
@@ -140,6 +244,7 @@ def normalize_feed(feed: dict[str, Any], local_timezone: ZoneInfo) -> tuple[date
 def normalize_feeds(feeds: Iterable[Any], local_timezone: ZoneInfo) -> list[tuple[datetime, dict[str, Any]]]:
     normalized: list[tuple[datetime, dict[str, Any]]] = []
     seen_entry_ids: set[int] = set()
+    seen_reading_ids: set[str] = set()
     for feed in feeds:
         if not isinstance(feed, dict):
             continue
@@ -148,6 +253,11 @@ def normalize_feeds(feeds: Iterable[Any], local_timezone: ZoneInfo) -> list[tupl
         except (TypeError, ValueError):
             continue
         entry_id = record["entry_id"]
+        reading_id = record["reading_id"]
+        if isinstance(reading_id, str):
+            if reading_id in seen_reading_ids:
+                continue
+            seen_reading_ids.add(reading_id)
         if isinstance(entry_id, int):
             if entry_id in seen_entry_ids:
                 continue
@@ -256,13 +366,13 @@ def hourly_summary(records: list[tuple[datetime, dict[str, Any]]]) -> list[dict[
     return output
 
 
-def channel_metadata(channel: dict[str, Any], channel_id: int) -> dict[str, Any]:
+def channel_metadata(channel: dict[str, Any], source_id: str) -> dict[str, Any]:
     fields = {
         field: channel.get(field) or fallback
         for field, fallback in FIELD_NAMES.items()
     }
     return {
-        "id": finite_number(channel.get("id"), integer=True) or channel_id,
+        "id": channel.get("id") or source_id,
         "name": channel.get("name") or None,
         "description": channel.get("description") or None,
         "latitude": finite_number(channel.get("latitude")),
@@ -274,7 +384,7 @@ def channel_metadata(channel: dict[str, Any], channel_id: int) -> dict[str, Any]
 def build_report(
     payload: dict[str, Any],
     *,
-    channel_id: int,
+    source_id: str,
     source_url: str,
     now: datetime,
     local_timezone: ZoneInfo,
@@ -297,15 +407,15 @@ def build_report(
     report = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": format_timestamp(now.astimezone(local_timezone)),
-        "timezone": local_timezone.key,
-        "channel": channel_metadata(payload["channel"], channel_id),
+        "timezone": timezone_name(local_timezone),
+        "channel": channel_metadata(payload["channel"], source_id),
         "period": {
             "yesterday": yesterday.isoformat(),
             "seven_day_start": seven_day_start.isoformat(),
             "seven_day_end": yesterday.isoformat(),
         },
         "quality": {
-            "source": "ThingSpeak",
+            "source": "Cloudflare D1",
             "source_url": source_url,
             "expected_interval_seconds": EXPECTED_INTERVAL_SECONDS,
             "seven_day_sample_count": len(seven_day_records),
@@ -386,11 +496,12 @@ def parse_now(value: str | None, local_timezone: ZoneInfo) -> datetime:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--channel-id", type=int, default=DEFAULT_CHANNEL_ID)
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--device-id", default=DEFAULT_DEVICE_ID)
     parser.add_argument("--days", type=int, default=DEFAULT_FETCH_DAYS)
     parser.add_argument("--timezone", default=DEFAULT_TIMEZONE)
     parser.add_argument("--output", type=Path, default=Path("docs/report-data.json"))
-    parser.add_argument("--input-json", type=Path, help="Use a saved ThingSpeak response instead of HTTP")
+    parser.add_argument("--input-json", type=Path, help="Use a saved normalized source response instead of HTTP")
     parser.add_argument("--now", help="Override current time for deterministic testing")
     return parser.parse_args()
 
@@ -399,16 +510,22 @@ def main() -> int:
     args = parse_args()
     if args.days < 8:
         raise ValueError("--days must be at least 8 to cover seven complete JST dates")
-    local_timezone = ZoneInfo(args.timezone)
+    local_timezone = load_timezone(args.timezone)
     now = parse_now(args.now, local_timezone)
     if args.input_json:
         payload = load_payload(args.input_json)
         source_url = str(args.input_json)
     else:
-        payload, source_url = fetch_payload(args.channel_id, args.days)
+        payload, source_url = fetch_payload(
+            args.base_url,
+            args.device_id,
+            args.days,
+            now,
+            local_timezone,
+        )
     report = build_report(
         payload,
-        channel_id=args.channel_id,
+        source_id=args.device_id,
         source_url=source_url,
         now=now,
         local_timezone=local_timezone,
