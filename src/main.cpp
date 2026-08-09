@@ -1,5 +1,5 @@
 /*
-  ESP32 + BME280 Hydroponics Environment Logger v8.2.5
+  ESP32 + BME280 Hydroponics Environment Logger v8.2.6
   --------------------------------------------------
   Cloud-focused release. Sensor and SwitchBot values are sent to ThingSpeak and
   Cloudflare in parallel. ArduinoOTA and the 30-day LittleFS sensor ring remain
@@ -37,7 +37,7 @@
 
 #ifndef CLOUDFLARE_INGEST_URL
 #define CLOUDFLARE_INGEST_URL \
-  "https://hydroponics-jma-weather.woosukang.workers.dev/v1/readings"
+  "https://hydroponics-jma-weather.flammenwerfer41.workers.dev/v1/readings"
 #endif
 
 #ifndef CLOUDFLARE_DEVICE_TOKEN
@@ -133,8 +133,8 @@ constexpr const char* LEGACY_V5_LOG_FILE_PATH = "/sensor_ring_v5.bin";
 constexpr const char* LEGACY_V6_LOG_FILE_PATH = "/sensor_ring_v6.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
-constexpr const char* FIRMWARE_VERSION = "8.2.5";
-constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (2UL << 8) | 5UL;
+constexpr const char* FIRMWARE_VERSION = "8.2.6";
+constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (2UL << 8) | 6UL;
 constexpr size_t FILESYSTEM_SAFETY_MARGIN = 128UL * 1024UL;
 constexpr size_t RING_INITIALIZE_CHUNK_BYTES = 512UL;
 

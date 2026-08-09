@@ -1,5 +1,5 @@
 (() => {
-  const cloudOrigin = "https://hydroponics-jma-weather.woosukang.workers.dev";
+  const cloudOrigin = "https://hydroponics-jma-weather.flammenwerfer41.workers.dev";
   const dataApiBaseUrl = window.location.origin === cloudOrigin ? "" : cloudOrigin;
 
   window.HYDROPONICS_CONFIG = Object.freeze({

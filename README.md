@@ -1,7 +1,7 @@
 # ESP32 Hydroponics Environment Monitor
 
 ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 개발 기준은 v8.2.5이며 PlatformIO와 Arduino framework를 사용합니다.
+현재 개발 기준은 v8.2.6이며 PlatformIO와 Arduino framework를 사용합니다.
 
 ## 개발 환경
 
@@ -12,7 +12,7 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 14일 링버퍼
 - Integrations: ThingSpeak, Cloudflare Workers/D1, SwitchBot Plug Mini
-- Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.woosukang.workers.dev/)
+- Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
 - Emergency mirror: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
 - Features: ThingSpeak·Cloudflare 병행 기록, Cloudflare 대시보드, OTA
 
@@ -81,7 +81,7 @@ ThingSpeak와 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하�
 링에 사이드카가 없으면 레코드의 기존 승인 비트를 한 번 이관하며 링 데이터는 지우지
 않습니다.
 
-## v8.2.5 병행 검증 절차
+## v8.2.6 병행 검증 절차
 
 2026-08-09부터 운영 D1과 Worker 수집 API가 활성화되었습니다. ThingSpeak는
 중단하지 않았으며 v8.2.5부터 두 목적지의 병행 검증을 진행합니다.

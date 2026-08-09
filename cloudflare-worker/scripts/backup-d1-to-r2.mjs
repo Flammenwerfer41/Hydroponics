@@ -24,7 +24,7 @@ import {
 const DATABASE = process.env.HYDRO_BACKUP_DATABASE || "hydroponics";
 const BUCKET = process.env.HYDRO_BACKUP_BUCKET || "hydroponics-backups";
 const HISTORY_URL = process.env.HYDRO_HISTORY_URL ||
-  "https://hydroponics-jma-weather.woosukang.workers.dev";
+  "https://hydroponics-jma-weather.flammenwerfer41.workers.dev";
 const DRY_RUN = process.argv.includes("--dry-run");
 const LOCAL_SOURCE = process.argv.includes("--local");
 const sourceIndex = process.argv.indexOf("--source-dir");

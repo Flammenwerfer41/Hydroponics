@@ -11,7 +11,7 @@ const char* THINGSPEAK_WRITE_API_KEY = "YOUR_THINGSPEAK_WRITE_API_KEY";
 
 // Cloudflare D1 ingestion. The URL is public; the device token is secret.
 #define CLOUDFLARE_INGEST_URL \
-  "https://hydroponics-jma-weather.woosukang.workers.dev/v1/readings"
+  "https://hydroponics-jma-weather.flammenwerfer41.workers.dev/v1/readings"
 #define CLOUDFLARE_DEVICE_TOKEN ""
 
 const char* OTA_HOSTNAME = "hydroponics-sensor";
