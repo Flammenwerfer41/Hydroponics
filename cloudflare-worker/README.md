@@ -17,8 +17,8 @@ SwitchBot management dashboard.
 The weather route still needs no secret. Measurement ingestion is documented in
 [`INGESTION.md`](INGESTION.md), and history queries and exports are documented in
 [`HISTORY_API.md`](HISTORY_API.md). The production `HYDROPONICS_DB` binding and the first
-device credential have been active since 2026-08-09; ThingSpeak remains enabled for
-parallel validation.
+device credential have been active since 2026-08-09. Firmware v8.4.0 uses this D1
+path as its sole remote measurement destination.
 
 Static asset routing, verification and rollback are documented in
 [`DASHBOARD_DEPLOYMENT.md`](DASHBOARD_DEPLOYMENT.md). `docs/weather-config.js` keeps

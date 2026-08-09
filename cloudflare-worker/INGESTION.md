@@ -103,22 +103,22 @@ The production D1 binding and first device credential were activated on 2026-08-
 If the binding is absent in another environment, the existing weather routes continue
 to work and ingestion returns HTTP 503 without changing any data.
 
-## ESP32 parallel-validation behavior
+## ESP32 Cloudflare-native behavior
 
-Firmware v8.3.0 keeps ThingSpeak active while validating D1. Every LittleFS v8
-record stores its boot ID, sequence, firmware version, reset reason and physical
-sensor values. The small `/sensor_ack_v1.bin` sidecar stores
-independent ThingSpeak and Cloudflare acknowledgement bits without repeatedly
-copy-writing the large sensor ring.
+Firmware v8.4.0 sends measurements directly to D1 through this Worker. Every
+LittleFS v8 record stores its boot ID, sequence, firmware version, reset reason
+and physical sensor values. The small `/sensor_ack_v1.bin` sidecar stores the
+Cloudflare acknowledgement bit without repeatedly copy-writing the large sensor
+ring. Its on-flash shape is unchanged from v8.3.0, so an OTA upgrade preserves
+existing records and pending delivery state.
 
-- A live reading is offered to both destinations even if the other one fails.
+- A live reading is queued for Cloudflare after it is stored locally.
 - Cloudflare completion requires an explicit `accepted` or `duplicate` result.
 - Pending Cloudflare records replay oldest first in batches of at most 15.
 - Failed recovery uses exponential backoff from 30 seconds to 30 minutes with jitter.
-- Pending ThingSpeak and Cloudflare bits are updated independently.
-- An empty `CLOUDFLARE_DEVICE_TOKEN` disables only the Cloudflare destination.
+- An empty `CLOUDFLARE_DEVICE_TOKEN` causes uploads to remain pending locally.
 
-The legacy light metrics remain valid for imported ThingSpeak history, but v8.3.0
+The legacy light metrics remain valid for imported ThingSpeak history, but v8.4.0
 does not submit them. Current light telemetry is recorded independently by the Worker
 in `actuator_telemetry`.
 

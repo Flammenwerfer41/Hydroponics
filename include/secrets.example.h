@@ -6,9 +6,6 @@
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-constexpr unsigned long THINGSPEAK_CHANNEL_ID = 0;
-const char* THINGSPEAK_WRITE_API_KEY = "YOUR_THINGSPEAK_WRITE_API_KEY";
-
 // Cloudflare D1 ingestion. The URL is public; the device token is secret.
 #define CLOUDFLARE_INGEST_URL \
   "https://hydroponics-jma-weather.flammenwerfer41.workers.dev/v1/readings"

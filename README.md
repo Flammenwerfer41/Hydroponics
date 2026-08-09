@@ -1,7 +1,7 @@
 # ESP32 Hydroponics Environment Monitor
 
 ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 개발 기준은 v8.3.0이며 PlatformIO와 Arduino framework를 사용합니다.
+현재 개발 기준은 v8.4.0이며 PlatformIO와 Arduino framework를 사용합니다.
 
 ## 개발 환경
 
@@ -11,10 +11,10 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - I2C: SDA 18, SCL 19
 - 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 14일 링버퍼
-- Integrations: ThingSpeak, Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
+- Integrations: Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
 - Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
 - Emergency mirror: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
-- Features: ThingSpeak·Cloudflare 병행 기록, Cloudflare 모니터링·관리 대시보드, OTA
+- Features: Cloudflare 단독 기록, Cloudflare 모니터링·관리 대시보드, OTA
 
 ## 처음 설정
 
@@ -41,30 +41,26 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 
 일반 펌웨어 OTA는 LittleFS 파티션 전체를 덮어쓰지 않습니다. 다만 수온을
 포함하는 새 저장 형식으로 전환한 펌웨어를 처음 실행하면 기존 센서 링버퍼와
-조명 이벤트 파일을 삭제하고 `/sensor_ring_v8.bin`을 생성합니다. v8.3.0은 기존 v7
-링을 삭제하고 SwitchBot 값이 빠진 40바이트 센서 레코드로 14일 링을 초기화합니다.
+조명 이벤트 파일을 삭제하고 `/sensor_ring_v8.bin`을 생성합니다. v8.4.0은 v8.3.0의
+40바이트 센서 링과 승인 사이드카를 그대로 사용하므로 OTA 시 기존 데이터가 유지됩니다.
 
 ## 측정 및 저장 정책
 
 - BME280 온도·습도·기압과 DS18B20 수온은 독립적으로 유효성을 판정합니다.
-  한쪽 센서가 실패해도 정상 측정값은 LittleFS에 저장하고 ThingSpeak로 전송하며,
+  한쪽 센서가 실패해도 정상 측정값은 LittleFS에 저장하고 Cloudflare로 전송하며,
   실패한 필드만 비워 둡니다. 두 센서가 모두 실패한 주기만 건너뜁니다.
 - BME280은 5회 연속 실패하면 ESP32를 재시작합니다. DS18B20은 단선 시 재시작보다
   재탐색이 유효하므로 매 측정 주기에 다시 탐색하면서 다른 센서의 동작을 계속합니다.
 - `/sensor_ring_v8.bin`은 측정 시각, 부팅 ID, 순번, 펌웨어 버전, 물리 센서값과
-  목적지별 확인 비트를 포함한 40바이트 `SensorRecord`를
+  Cloudflare 확인 비트를 포함한 40바이트 `SensorRecord`를
   사용하며 2분 간격으로 14일을 저장합니다. LittleFS의 copy-on-write를 고려해
   링 파일 두 배와 128KB 여유 공간이 파티션에 들어오는지도 부팅 시 검증합니다.
 - LittleFS 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
-- ThingSpeak와 Cloudflare 성공 상태를 별도 비트로 관리합니다. 한 목적지의 장애가
-  다른 목적지의 전송 완료 상태를 바꾸지 않습니다.
-- ThingSpeak는 오래된 미확인 기록부터 최대 40건씩 복구하며, 링에 저장된
-  `field1`~`field5`를 원래 측정 시각으로 전송합니다.
 - Cloudflare는 장치별 Bearer 토큰으로 인증하고, `accepted` 또는 `duplicate` 응답을
   받은 기록만 완료 처리합니다. 최대 15건을 오래된 순서로 복구하며 실패 시
   30초에서 30분까지 지수 백오프와 지터를 적용합니다.
-- Cloudflare 토큰이 비어 있으면 해당 목적지만 비활성화되고 ThingSpeak 동작은
-  유지됩니다. D1과 장치 자격 증명을 준비한 뒤 `include/secrets.h`의
+- Cloudflare 토큰이 비어 있으면 전송 기록은 LittleFS에 미완료 상태로 남습니다.
+  D1과 장치 자격 증명을 준비한 뒤 `include/secrets.h`의
   `CLOUDFLARE_DEVICE_TOKEN`에 발급값을 넣습니다.
 - Cloudflare HTTPS는 현재 `workers.dev` 인증서 체인의 GlobalSign ECC Root CA R4로
   서버를 검증합니다. 체인이 변경되면 전송은 안전하게 실패하고 기록은 LittleFS에
@@ -78,9 +74,9 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 - 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
 
 승인 상태는 `/sensor_ack_v1.bin` 사이드카에 슬롯당 1바이트로 저장합니다. 따라서
-ThingSpeak와 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다.
+Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다.
 
-## v8.3.0 클라우드 제어 구조
+## v8.4.0 클라우드 제어 구조
 
 ESP32는 BME280·DS18B20과 자체 Wi-Fi 상태만 수집합니다. 조명 상태·전력 조회,
 07:00 ON / 21:00 OFF 스케줄, 수동 조작과 에어컨 명령은 Cloudflare Worker가

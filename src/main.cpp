@@ -1,14 +1,14 @@
 /*
-  ESP32 + BME280 Hydroponics Environment Logger v8.3.0
+  ESP32 + BME280 Hydroponics Environment Logger v8.4.0
   --------------------------------------------------
-  Cloud-focused release. Physical sensor values are sent to ThingSpeak and
-  Cloudflare in parallel. ArduinoOTA and the 14-day LittleFS sensor ring remain
-  available, while the ESP-hosted dashboard and HTTP API stay removed to reduce
-  firmware size and runtime memory use.
+  Cloudflare-native release. Physical sensor values are sent to the Cloudflare
+  ingestion API. ArduinoOTA and the 14-day LittleFS sensor ring remain available,
+  while the ESP-hosted dashboard and HTTP API stay removed to reduce firmware
+  size and runtime memory use.
 
   Each ring record carries a stable boot/sequence identity, all available sensor
-  telemetry and independent acknowledgement flags for ThingSpeak and Cloudflare.
-  SwitchBot observation and control are owned by the Cloudflare Worker.
+  telemetry and a Cloudflare acknowledgement flag. SwitchBot observation and
+  control are owned by the Cloudflare Worker.
 */
 
 #include <Arduino.h>
@@ -22,7 +22,6 @@
 #include <Adafruit_BME280.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <ThingSpeak.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
@@ -91,24 +90,17 @@ constexpr int WATER_TEMPERATURE_PIN = 21;
 constexpr uint8_t DS18B20_RESOLUTION_BITS = 11;
 constexpr uint32_t DS18B20_CONVERSION_MS = 375UL;
 constexpr uint32_t SAMPLE_INTERVAL_MS = 120000UL;
-constexpr uint8_t MAX_UPLOAD_ATTEMPTS = 1;
-constexpr uint32_t UPLOAD_RETRY_DELAY_MS = 0UL;
 constexpr uint8_t MAX_CONSECUTIVE_SENSOR_FAILURES = 5;
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000UL;
 constexpr uint32_t NTP_RETRY_INTERVAL_MS = 300000UL;
 constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = 8000UL;
-constexpr uint8_t THINGSPEAK_QUEUE_LENGTH = 4;
-constexpr uint32_t THINGSPEAK_TASK_STACK = 8192;
-constexpr uint8_t THINGSPEAK_BULK_BATCH_SIZE = 40;
-constexpr uint32_t THINGSPEAK_MIN_WRITE_INTERVAL_MS = 16000UL;
-constexpr uint32_t THINGSPEAK_BULK_HTTP_TIMEOUT_MS = 15000UL;
+constexpr uint8_t CLOUDFLARE_QUEUE_LENGTH = 4;
+constexpr uint32_t CLOUDFLARE_TASK_STACK = 8192;
 constexpr uint8_t CLOUDFLARE_BULK_BATCH_SIZE = 15;
 constexpr uint32_t CLOUDFLARE_HTTP_TIMEOUT_MS = 15000UL;
 constexpr uint32_t CLOUDFLARE_BACKOFF_INITIAL_MS = 30000UL;
 constexpr uint32_t CLOUDFLARE_BACKOFF_MAX_MS = 30UL * 60UL * 1000UL;
 constexpr uint32_t CLOUDFLARE_BACKOFF_JITTER_MS = 5000UL;
-static_assert(CLOUDFLARE_BULK_BATCH_SIZE <= THINGSPEAK_BULK_BATCH_SIZE,
-              "Shared recovery buffer is too small");
 
 // Keep false for an existing installation. Setting true may erase LittleFS if
 // mounting fails, so use it only once for a genuinely new/unformatted partition.
@@ -128,15 +120,16 @@ constexpr const char* LEGACY_V6_LOG_FILE_PATH = "/sensor_ring_v6.bin";
 constexpr const char* LEGACY_V7_LOG_FILE_PATH = "/sensor_ring_v7.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
-constexpr const char* FIRMWARE_VERSION = "8.3.0";
-constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (3UL << 8);
+constexpr const char* FIRMWARE_VERSION = "8.4.0";
+constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (4UL << 8);
 constexpr size_t FILESYSTEM_SAFETY_MARGIN = 128UL * 1024UL;
 constexpr size_t RING_INITIALIZE_CHUNK_BYTES = 512UL;
 
 enum RecordFlags : uint8_t {
   FLAG_BME280_VALID   = 1 << 0,
   FLAG_WATER_VALID    = 1 << 1,
-  FLAG_THINGSPEAK_OK  = 1 << 4,
+  // Bit 4 is retained in the on-flash record layout for v8 compatibility.
+  FLAG_LEGACY_DESTINATION_OK = 1 << 4,
   FLAG_CLOUDFLARE_OK  = 1 << 5
 };
 
@@ -156,7 +149,7 @@ struct __attribute__((packed)) SensorRecord {
 };
 static_assert(sizeof(SensorRecord) == 40, "SensorRecord must remain 40 bytes");
 
-struct ThingSpeakJob {
+struct CloudflareJob {
   SensorRecord record;
   uint32_t slot;
 };
@@ -168,7 +161,7 @@ struct StoredRecordRef {
 
 constexpr size_t REQUIRED_LOG_BYTES = static_cast<size_t>(MAX_RECORDS) * sizeof(SensorRecord);
 constexpr size_t REQUIRED_ACK_BYTES = static_cast<size_t>(MAX_RECORDS);
-constexpr uint8_t DESTINATION_ACK_MASK = FLAG_THINGSPEAK_OK | FLAG_CLOUDFLARE_OK;
+constexpr uint8_t DESTINATION_ACK_MASK = FLAG_CLOUDFLARE_OK;
 
 int32_t newestSlot = -1;
 
@@ -176,11 +169,10 @@ Adafruit_BME280 bme;
 OneWire waterTemperatureBus(WATER_TEMPERATURE_PIN);
 DallasTemperature waterTemperatureSensors(&waterTemperatureBus);
 DeviceAddress waterTemperatureAddress{};
-WiFiClient thingSpeakClient;
-QueueHandle_t thingSpeakQueue = nullptr;
+QueueHandle_t cloudflareQueue = nullptr;
 SemaphoreHandle_t fsMutex = nullptr;
 SemaphoreHandle_t stateMutex = nullptr;
-TaskHandle_t thingSpeakTaskHandle = nullptr;
+TaskHandle_t cloudflareTaskHandle = nullptr;
 
 uint8_t bmeAddress = 0;
 bool waterTemperatureSensorReady = false;
@@ -196,12 +188,10 @@ uint32_t lastSampleMs = 0;
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastNtpRequestMs = 0;
 bool ntpRequestActive = false;
-uint32_t consecutiveUploadFailures = 0;
 uint8_t consecutiveBme280Failures = 0;
 uint32_t consecutiveWaterTemperatureFailures = 0;
 uint32_t droppedUploadJobs = 0;
-uint32_t lastThingSpeakWriteMs = 0;
-StoredRecordRef bulkUploadBatch[THINGSPEAK_BULK_BATCH_SIZE]{};
+StoredRecordRef bulkUploadBatch[CLOUDFLARE_BULK_BATCH_SIZE]{};
 uint32_t consecutiveCloudflareFailures = 0;
 uint32_t cloudflareRecoveryBackoffMs = 0;
 uint32_t nextCloudflareRecoveryMs = 0;
@@ -798,7 +788,7 @@ bool appendRecord(const SensorRecord& record, uint32_t& writtenSlot) {
 }
 
 bool validDestinationFlag(uint8_t flag) {
-  return flag == FLAG_THINGSPEAK_OK || flag == FLAG_CLOUDFLARE_OK;
+  return flag == FLAG_CLOUDFLARE_OK;
 }
 
 bool markRecordDestinationOk(
@@ -1101,204 +1091,59 @@ void recoverPendingCloudflareRecords() {
   else scheduleCloudflareBackoff();
 }
 
-// ================= CLOUD UPLOAD TASK =================
-int uploadToThingSpeak(const ThingSpeakJob& job) {
-  if (WiFi.status() != WL_CONNECTED) return -1000;
-  int code = -1;
-  for (uint8_t attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; ++attempt) {
-    if ((job.record.flags & FLAG_BME280_VALID) != 0) {
-      ThingSpeak.setField(1, job.record.temperature);
-      ThingSpeak.setField(2, job.record.humidity);
-      ThingSpeak.setField(3, job.record.pressure);
-    }
-    ThingSpeak.setField(4, static_cast<long>(job.record.rssi));
-    if ((job.record.flags & FLAG_WATER_VALID) != 0) {
-      ThingSpeak.setField(5, job.record.waterTemperature);
-    }
-    ThingSpeak.setStatus("Sensor online");
-    code = ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_WRITE_API_KEY);
-    lastThingSpeakWriteMs = millis();
-    if (code == 200) {
-      Serial.printf("ThingSpeak upload succeeded on attempt %u.\n", attempt);
-      return code;
-    }
-    Serial.printf("ThingSpeak attempt %u failed: %d\n", attempt, code);
-    if (attempt < MAX_UPLOAD_ATTEMPTS) vTaskDelay(pdMS_TO_TICKS(UPLOAD_RETRY_DELAY_MS));
-  }
-  return code;
-}
-
-bool waitForThingSpeakWriteWindow() {
-  while (lastThingSpeakWriteMs != 0 &&
-         millis() - lastThingSpeakWriteMs < THINGSPEAK_MIN_WRITE_INTERVAL_MS) {
-    if (WiFi.status() != WL_CONNECTED || otaInProgress) return false;
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
-  return WiFi.status() == WL_CONNECTED && !otaInProgress;
-}
-
-bool appendBulkRecordJson(String& payload, const SensorRecord& record, bool first) {
-  if (!validStoredRecord(record)) return false;
-  if (!first) payload += ',';
-  payload += F("{\"created_at\":\"");
-  payload += String(record.timestamp);
-  payload += '"';
-  if ((record.flags & FLAG_BME280_VALID) != 0) {
-    payload += F(",\"field1\":");
-    payload += String(record.temperature, 3);
-    payload += F(",\"field2\":");
-    payload += String(record.humidity, 3);
-    payload += F(",\"field3\":");
-    payload += String(record.pressure, 3);
-  }
-  if (record.rssi < 0) {
-    payload += F(",\"field4\":");
-    payload += String(static_cast<int>(record.rssi));
-  }
-  if ((record.flags & FLAG_WATER_VALID) != 0) {
-    payload += F(",\"field5\":");
-    payload += String(record.waterTemperature, 3);
-  }
-  payload += '}';
-  return true;
-}
-
-int bulkUploadToThingSpeak(const StoredRecordRef* records, size_t count) {
-  if (WiFi.status() != WL_CONNECTED || records == nullptr || count == 0) return -1000;
-  if (!waitForThingSpeakWriteWindow()) return -1001;
-
-  String payload;
-  if (!payload.reserve(96 + count * 150U)) {
-    Serial.println("ThingSpeak bulk upload skipped: insufficient heap for JSON payload.");
-    return -1002;
-  }
-  payload += F("{\"write_api_key\":\"");
-  payload += THINGSPEAK_WRITE_API_KEY;
-  payload += F("\",\"updates\":[");
-  size_t appended = 0;
-  for (size_t index = 0; index < count; ++index) {
-    if (appendBulkRecordJson(payload, records[index].record, appended == 0)) appended++;
-  }
-  payload += F("]}");
-  if (appended == 0) return -1003;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  String url = String("https://api.thingspeak.com/channels/") +
-               String(THINGSPEAK_CHANNEL_ID) + "/bulk_update.json";
-  if (!http.begin(client, url)) {
-    Serial.println("ThingSpeak bulk HTTP begin failed.");
-    return -1004;
-  }
-  http.setTimeout(THINGSPEAK_BULK_HTTP_TIMEOUT_MS);
-  http.addHeader("Content-Type", "application/json");
-  int code = http.POST(reinterpret_cast<uint8_t*>(payload.begin()), payload.length());
-  lastThingSpeakWriteMs = millis();
-  String response = code > 0 ? http.getString() : String();
-  http.end();
-  response.replace(" ", "");
-  response.replace("\r", "");
-  response.replace("\n", "");
-  if (code == 200 && response.indexOf("\"success\":true") >= 0) return code;
-
-  Serial.printf("ThingSpeak bulk upload failed: HTTP %d.\n", code);
-  return code == 200 ? -1005 : code;
-}
-
-void recoverPendingThingSpeakRecords() {
-  size_t count = collectPendingDestinationRecords(
-    bulkUploadBatch, THINGSPEAK_BULK_BATCH_SIZE, FLAG_THINGSPEAK_OK);
-  if (count == 0) return;
-
-  Serial.printf("ThingSpeak recovery: uploading %u stored records.\n",
-                static_cast<unsigned>(count));
-  int code = bulkUploadToThingSpeak(bulkUploadBatch, count);
-  if (code != 200) {
-    Serial.println("ThingSpeak recovery deferred; stored records remain pending.");
-    return;
-  }
-
-  size_t marked = markRecordsDestinationOk(
-    bulkUploadBatch, count, FLAG_THINGSPEAK_OK);
-  Serial.printf("ThingSpeak recovery succeeded: %u uploaded, %u marked complete.\n",
-                static_cast<unsigned>(count), static_cast<unsigned>(marked));
-  if (marked != count) {
-    Serial.println("Some recovered slots changed before confirmation; they will be checked again.");
-  }
-}
-
-void thingSpeakTask(void* parameter) {
-  ThingSpeakJob job{};
+// ================= CLOUDFLARE UPLOAD TASK =================
+void cloudflareTask(void* parameter) {
+  CloudflareJob job{};
   for (;;) {
-    if (xQueueReceive(thingSpeakQueue, &job, portMAX_DELAY) != pdTRUE) continue;
+    if (xQueueReceive(cloudflareQueue, &job, portMAX_DELAY) != pdTRUE) continue;
     while (otaInProgress) vTaskDelay(pdMS_TO_TICKS(100));
-    int code = uploadToThingSpeak(job);
-    bool thingSpeakOk = code == 200;
-    bool cloudflareEnabled = cloudflareConfigured();
-    bool cloudflareOk = cloudflareEnabled && uploadToCloudflare(job.record);
+    bool cloudflareOk = uploadToCloudflare(job.record);
 
     if (takeMutex(stateMutex, portMAX_DELAY)) {
-      if (thingSpeakOk) consecutiveUploadFailures = 0;
-      else if (consecutiveUploadFailures < UINT32_MAX) consecutiveUploadFailures++;
-      if (cloudflareEnabled) {
-        if (cloudflareOk) consecutiveCloudflareFailures = 0;
-        else if (consecutiveCloudflareFailures < UINT32_MAX) consecutiveCloudflareFailures++;
-      }
+      if (cloudflareOk) consecutiveCloudflareFailures = 0;
+      else if (consecutiveCloudflareFailures < UINT32_MAX) consecutiveCloudflareFailures++;
       giveMutex(stateMutex);
     }
 
-    if (thingSpeakOk && job.slot < MAX_RECORDS &&
-        !markRecordDestinationOk(job.slot, job.record, FLAG_THINGSPEAK_OK)) {
-      Serial.println("Failed to update local ThingSpeak acknowledgement flag.");
-    }
     if (cloudflareOk && job.slot < MAX_RECORDS &&
         !markRecordDestinationOk(job.slot, job.record, FLAG_CLOUDFLARE_OK)) {
       Serial.println("Failed to update local Cloudflare acknowledgement flag.");
     }
-    if (!thingSpeakOk) {
-      Serial.printf("ThingSpeak upload failed; local record retained. Consecutive failures: %lu\n",
-                    static_cast<unsigned long>(consecutiveUploadFailures));
-    } else {
-      recoverPendingThingSpeakRecords();
+    if (cloudflareOk) resetCloudflareBackoff();
+    else {
+      Serial.printf("Cloudflare upload failed; local record retained. Consecutive failures: %lu\n",
+                    static_cast<unsigned long>(consecutiveCloudflareFailures));
+      scheduleCloudflareBackoff();
     }
-    if (cloudflareEnabled) {
-      if (cloudflareOk) resetCloudflareBackoff();
-      else {
-        Serial.printf("Cloudflare upload failed; local record retained. Consecutive failures: %lu\n",
-                      static_cast<unsigned long>(consecutiveCloudflareFailures));
-        scheduleCloudflareBackoff();
-      }
-      recoverPendingCloudflareRecords();
-    }
+    recoverPendingCloudflareRecords();
   }
 }
 
-bool setupThingSpeakTask() {
-  thingSpeakQueue = xQueueCreate(THINGSPEAK_QUEUE_LENGTH, sizeof(ThingSpeakJob));
-  if (!thingSpeakQueue) {
-    Serial.println("ERROR: ThingSpeak queue creation failed.");
+bool setupCloudflareTask() {
+  cloudflareQueue = xQueueCreate(CLOUDFLARE_QUEUE_LENGTH, sizeof(CloudflareJob));
+  if (!cloudflareQueue) {
+    Serial.println("ERROR: Cloudflare queue creation failed.");
     return false;
   }
   BaseType_t result = xTaskCreatePinnedToCore(
-    thingSpeakTask, "ThingSpeak", THINGSPEAK_TASK_STACK,
-    nullptr, 1, &thingSpeakTaskHandle, 0);
+    cloudflareTask, "Cloudflare", CLOUDFLARE_TASK_STACK,
+    nullptr, 1, &cloudflareTaskHandle, 0);
   if (result != pdPASS) {
-    Serial.println("ERROR: ThingSpeak task creation failed.");
-    vQueueDelete(thingSpeakQueue);
-    thingSpeakQueue = nullptr;
+    Serial.println("ERROR: Cloudflare task creation failed.");
+    vQueueDelete(cloudflareQueue);
+    cloudflareQueue = nullptr;
     return false;
   }
   Serial.println("Cloud upload task started.");
   return true;
 }
 
-bool queueThingSpeakUpload(const SensorRecord& record, uint32_t slot) {
-  if (!thingSpeakQueue) return false;
-  ThingSpeakJob job{};
+bool queueCloudflareUpload(const SensorRecord& record, uint32_t slot) {
+  if (!cloudflareQueue) return false;
+  CloudflareJob job{};
   job.record = record;
   job.slot = slot;
-  if (xQueueSend(thingSpeakQueue, &job, 0) == pdTRUE) return true;
+  if (xQueueSend(cloudflareQueue, &job, 0) == pdTRUE) return true;
   droppedUploadJobs++;
   Serial.printf("Cloud upload queue full; dropped upload job. Total dropped: %lu\n",
                 static_cast<unsigned long>(droppedUploadJobs));
@@ -1381,9 +1226,9 @@ void performMeasurementCycle() {
     }
   }
 
-  if (!queueThingSpeakUpload(record, localSaved ? writtenSlot : UINT32_MAX)) {
+  if (!queueCloudflareUpload(record, localSaved ? writtenSlot : UINT32_MAX)) {
     if (takeMutex(stateMutex, portMAX_DELAY)) {
-      if (consecutiveUploadFailures < UINT32_MAX) consecutiveUploadFailures++;
+      if (consecutiveCloudflareFailures < UINT32_MAX) consecutiveCloudflareFailures++;
       giveMutex(stateMutex);
     }
   }
@@ -1417,15 +1262,12 @@ void setup() {
     setupOTA();
   }
 
-  thingSpeakClient.setTimeout(3000);
-  ThingSpeak.begin(thingSpeakClient);
-
   initializeFilesystem();
   Serial.printf("Cloudflare ingestion: %s\n",
                 cloudflareConfigured() ? "configured" : "disabled (device token missing)");
   Serial.printf("Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
-  setupThingSpeakTask();
+  setupCloudflareTask();
   lastSampleMs = millis() - SAMPLE_INTERVAL_MS;
   Serial.println("Setup complete.");
 }
