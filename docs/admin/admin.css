@@ -29,7 +29,7 @@ button.danger { color:white; background:var(--red); border-color:transparent; }
 h1,h2,p { margin-top:0; }
 h1 { margin-bottom:0; font-size:clamp(1.8rem,4vw,3rem); }
 h2 { margin-bottom:0; font-size:1.35rem; }
-nav { display:flex; gap:5px; padding:4px; border:1px solid var(--line); border-radius:14px; background:var(--panel); }
+nav { display:flex; flex-wrap:wrap; gap:5px; padding:4px; border:1px solid var(--line); border-radius:14px; background:var(--panel); }
 nav a { color:var(--muted); text-decoration:none; font-weight:750; padding:.6rem 1rem; border-radius:10px; }
 nav a.active { color:white; background:var(--green-dark); }
 .status-ribbon { display:grid; grid-template-columns:repeat(5,1fr); overflow:hidden; border:1px solid var(--line); border-radius:20px; background:var(--panel); box-shadow:var(--shadow); }

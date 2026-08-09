@@ -10,6 +10,7 @@ SwitchBot management dashboard.
 - Tokyo district (`130010`): JMA weather-distribution forecast at three-hour intervals
 - Dashboard: `/`
 - Management dashboard: `/admin/` (Cloudflare Access required)
+- Cultivation journal: `/admin/journal/` (Cloudflare Access required)
 - Weather endpoint: `/v1/current`
 - Cache: five minutes
 - JMA routes require no API key; control routes use Worker Secrets
@@ -26,6 +27,8 @@ same-origin API calls on the primary Worker and points the Pages mirrors back to
 
 SwitchBot control, the 07:00/21:00 JST light schedule and Access configuration are
 documented in [`CONTROL.md`](CONTROL.md).
+The date-based cultivation journal, crop sections and manual pH/EC/top-up records are
+documented in [`JOURNAL.md`](JOURNAL.md).
 
 ## Cloudflare dashboard setup
 
