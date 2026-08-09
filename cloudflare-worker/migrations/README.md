@@ -10,6 +10,10 @@ the public history API's cursor pagination. It does not rewrite sensor data.
 Worker. It adds independent actuator telemetry, command history and a JST schedule
 with the initial 07:00 ON / 21:00 OFF policy, plus the room air conditioner actuator.
 
+`0004_bridge_legacy_light_history.sql` copies the already-imported ThingSpeak
+Fields 6-8 from `measurement_values` into the canonical `actuator_telemetry`
+table. It is idempotent and preserves the original measured timestamps.
+
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
 replacement receives a new sensor ID while historical values continue to reference

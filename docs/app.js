@@ -1412,10 +1412,10 @@ class LineChart {
     const yFor = (value) => margin.top + ((maximum - value) / valueSpan) * plotHeight;
 
     const shadedLightPoints = state.range === "day"
-      ? state.history.filter(
+      ? state.lightHistory.filter(
         (point) => point.time >= state.todayStart && point.time < state.rangeEnd
       )
-      : state.history;
+      : state.lightHistory;
     lightSegments(shadedLightPoints).forEach((segment) => {
       const start = Math.max(firstTime, segment.start);
       const end = Math.min(lastTime, segment.end);
