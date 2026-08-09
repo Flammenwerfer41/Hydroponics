@@ -11,6 +11,7 @@ management notes from crop-specific observations.
 - `journal_tags`: reusable activity labels such as observation, nutrient work and harvest
 - `journal_section_tags`: activity labels attached to crop sections
 - `journal_day_values`: named manual measurements, currently pH, EC and solution top-up
+- `journal_photos`: one R2-backed photo reference and thumbnail per journal day
 
 Manual values use canonical metric names and a `source` column instead of dedicated
 columns on `journal_days`. A future pH or EC sensor can therefore write the same metric
@@ -35,6 +36,9 @@ GET    /admin/api/journal/:id
 POST   /admin/api/journal
 PUT    /admin/api/journal/:id
 DELETE /admin/api/journal/:id
+GET    /admin/api/journal/:id/photo[?variant=thumbnail]
+PUT    /admin/api/journal/:id/photo
+DELETE /admin/api/journal/:id/photo
 ```
 
 `PUT` requires the latest positive integer `revision`. Conflicting edits return HTTP
@@ -51,5 +55,9 @@ activity filters. A daily record may contain:
 - optional solution top-up volume and liquid type;
 - optional crop sections for basil and perilla, each with free text and activity tags.
 
-Photo upload, R2 objects, public journal display and firmware changes are deliberately
-outside this first journal release.
+The administrator interface accepts either a mobile camera capture or an existing image.
+It converts the selected image to JPEG before upload, limits the long edge to 1600 pixels,
+and creates a 420-pixel thumbnail. R2 stores the image objects in the private
+`hydroponics-journal-photos` bucket while D1 stores only metadata and object keys. Both
+photo reads and writes remain behind Cloudflare Access. Public journal display and firmware
+changes remain outside this release.

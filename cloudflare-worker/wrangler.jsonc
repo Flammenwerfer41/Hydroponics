@@ -26,5 +26,11 @@
       "database_id": "d07738cc-cf73-48ec-b7c2-9cbd5d1de89f",
       "migrations_dir": "migrations"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "JOURNAL_PHOTOS",
+      "bucket_name": "hydroponics-journal-photos"
+    }
   ]
 }

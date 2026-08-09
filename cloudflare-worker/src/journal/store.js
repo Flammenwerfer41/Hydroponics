@@ -32,6 +32,19 @@ function valueMap(valueRows) {
   return output;
 }
 
+function photoMetadata(row) {
+  if (!row?.photo_mime_type) return null;
+  return {
+    mime_type: row.photo_mime_type,
+    byte_size: row.photo_byte_size,
+    width: row.photo_width,
+    height: row.photo_height,
+    updated_at: row.photo_updated_at,
+    url: `/admin/api/journal/${row.id}/photo`,
+    thumbnail_url: `/admin/api/journal/${row.id}/photo?variant=thumbnail`
+  };
+}
+
 export async function journalCatalog(database) {
   const [cropResult, tagResult, periodResult] = await Promise.all([
     database.prepare(`
@@ -68,7 +81,12 @@ export async function listJournalDays(database, query) {
       (SELECT value FROM journal_day_values WHERE journal_day_id = jd.id AND metric = 'solution_ph') AS solution_ph,
       (SELECT value FROM journal_day_values WHERE journal_day_id = jd.id AND metric = 'electrical_conductivity') AS electrical_conductivity,
       (SELECT value FROM journal_day_values WHERE journal_day_id = jd.id AND metric = 'solution_added_volume') AS solution_added_volume,
-      (SELECT qualifier FROM journal_day_values WHERE journal_day_id = jd.id AND metric = 'solution_added_volume') AS solution_added_liquid_type
+      (SELECT qualifier FROM journal_day_values WHERE journal_day_id = jd.id AND metric = 'solution_added_volume') AS solution_added_liquid_type,
+      (SELECT mime_type FROM journal_photos WHERE journal_day_id = jd.id) AS photo_mime_type,
+      (SELECT byte_size FROM journal_photos WHERE journal_day_id = jd.id) AS photo_byte_size,
+      (SELECT width FROM journal_photos WHERE journal_day_id = jd.id) AS photo_width,
+      (SELECT height FROM journal_photos WHERE journal_day_id = jd.id) AS photo_height,
+      (SELECT updated_at FROM journal_photos WHERE journal_day_id = jd.id) AS photo_updated_at
     FROM journal_days jd
     LEFT JOIN journal_sections js ON js.journal_day_id = jd.id
     LEFT JOIN crops c ON c.id = js.crop_id
@@ -87,10 +105,22 @@ export async function listJournalDays(database, query) {
     ORDER BY jd.journal_date DESC, jd.updated_at DESC
     LIMIT ?6
   `).bind(SITE_ID, from, to, query.cropId, query.tagId, query.limit).all();
-  return rows(result).map((row) => ({
-    ...row,
-    crop_names: row.crop_names ? row.crop_names.split(",") : []
-  }));
+  return rows(result).map((row) => {
+    const photo = photoMetadata(row);
+    const {
+      photo_mime_type: ignoredMime,
+      photo_byte_size: ignoredBytes,
+      photo_width: ignoredWidth,
+      photo_height: ignoredHeight,
+      photo_updated_at: ignoredUpdated,
+      ...entry
+    } = row;
+    return {
+      ...entry,
+      crop_names: row.crop_names ? row.crop_names.split(",") : [],
+      photo
+    };
+  });
 }
 
 export async function journalDay(database, id) {
@@ -101,7 +131,7 @@ export async function journalDay(database, id) {
     WHERE id = ?1 AND site_id = ?2 AND deleted_at IS NULL
   `).bind(id, SITE_ID).first();
   if (!day) return null;
-  const [valueResult, sectionResult, tagResult] = await Promise.all([
+  const [valueResult, sectionResult, tagResult, photo] = await Promise.all([
     database.prepare(`
       SELECT metric, value, unit, source, qualifier, measured_at
       FROM journal_day_values WHERE journal_day_id = ?1 ORDER BY metric
@@ -117,7 +147,12 @@ export async function journalDay(database, id) {
       FROM journal_section_tags jst JOIN journal_tags jt ON jt.id = jst.tag_id
       JOIN journal_sections js ON js.id = jst.journal_section_id
       WHERE js.journal_day_id = ?1 ORDER BY jt.name
-    `).bind(id).all()
+    `).bind(id).all(),
+    database.prepare(`
+      SELECT mime_type AS photo_mime_type, byte_size AS photo_byte_size,
+        width AS photo_width, height AS photo_height, updated_at AS photo_updated_at
+      FROM journal_photos WHERE journal_day_id = ?1
+    `).bind(id).first()
   ]);
   const tagsBySection = new Map();
   for (const tag of rows(tagResult)) {
@@ -128,6 +163,7 @@ export async function journalDay(database, id) {
   }
   return {
     ...day,
+    photo: photoMetadata({ ...photo, id }),
     measurements: valueMap(rows(valueResult)),
     sections: rows(sectionResult).map((section) => ({
       ...section,
@@ -288,4 +324,85 @@ export async function deleteJournalDay(database, id, actor, now = new Date()) {
     `).bind(actor, id, timestamp)
   ]);
   return Number(result?.[0]?.meta?.changes ?? 0) > 0;
+}
+
+export async function journalPhotoObject(database, id) {
+  return database.prepare(`
+    SELECT jp.full_object_key, jp.thumbnail_object_key, jp.mime_type, jp.byte_size,
+      jp.thumbnail_byte_size, jp.width, jp.height, jp.created_at, jp.updated_at
+    FROM journal_photos jp
+    JOIN journal_days jd ON jd.id = jp.journal_day_id
+    WHERE jp.journal_day_id = ?1 AND jd.site_id = ?2 AND jd.deleted_at IS NULL
+  `).bind(id, SITE_ID).first();
+}
+
+export async function attachJournalPhoto(database, id, photo, actor, revision, now = new Date()) {
+  const timestamp = now.toISOString();
+  const results = await database.batch([
+    database.prepare(`
+      UPDATE journal_days SET revision = revision + 1, updated_at = ?1
+      WHERE id = ?2 AND site_id = ?3 AND revision = ?4 AND deleted_at IS NULL
+    `).bind(timestamp, id, SITE_ID, revision),
+    database.prepare(`
+      INSERT INTO journal_photos
+        (journal_day_id, full_object_key, thumbnail_object_key, mime_type, byte_size,
+          thumbnail_byte_size, width, height, uploaded_by, created_at, updated_at)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10
+      WHERE EXISTS (SELECT 1 FROM journal_days WHERE id = ?1 AND updated_at = ?10)
+      ON CONFLICT(journal_day_id) DO UPDATE SET
+        full_object_key = excluded.full_object_key,
+        thumbnail_object_key = excluded.thumbnail_object_key,
+        mime_type = excluded.mime_type,
+        byte_size = excluded.byte_size,
+        thumbnail_byte_size = excluded.thumbnail_byte_size,
+        width = excluded.width,
+        height = excluded.height,
+        uploaded_by = excluded.uploaded_by,
+        updated_at = excluded.updated_at
+    `).bind(
+      id,
+      photo.fullObjectKey,
+      photo.thumbnailObjectKey,
+      photo.mimeType,
+      photo.byteSize,
+      photo.thumbnailByteSize,
+      photo.width,
+      photo.height,
+      actor,
+      timestamp
+    ),
+    database.prepare(`
+      INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, occurred_at)
+      SELECT 'admin', ?1, 'journal.photo.put', 'journal_day', ?2, ?3
+      WHERE EXISTS (SELECT 1 FROM journal_days WHERE id = ?2 AND updated_at = ?3)
+    `).bind(actor, id, timestamp)
+  ]);
+  if (Number(results?.[0]?.meta?.changes ?? 0) === 0) {
+    throw new JournalRequestError("revision_conflict", "The journal was updated elsewhere", 409);
+  }
+  return journalDay(database, id);
+}
+
+export async function removeJournalPhoto(database, id, actor, revision, now = new Date()) {
+  const timestamp = now.toISOString();
+  const results = await database.batch([
+    database.prepare(`
+      UPDATE journal_days SET revision = revision + 1, updated_at = ?1
+      WHERE id = ?2 AND site_id = ?3 AND revision = ?4 AND deleted_at IS NULL
+        AND EXISTS (SELECT 1 FROM journal_photos WHERE journal_day_id = ?2)
+    `).bind(timestamp, id, SITE_ID, revision),
+    database.prepare(`
+      DELETE FROM journal_photos WHERE journal_day_id = ?1
+        AND EXISTS (SELECT 1 FROM journal_days WHERE id = ?1 AND updated_at = ?2)
+    `).bind(id, timestamp),
+    database.prepare(`
+      INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, occurred_at)
+      SELECT 'admin', ?1, 'journal.photo.delete', 'journal_day', ?2, ?3
+      WHERE EXISTS (SELECT 1 FROM journal_days WHERE id = ?2 AND updated_at = ?3)
+    `).bind(actor, id, timestamp)
+  ]);
+  if (Number(results?.[0]?.meta?.changes ?? 0) === 0) {
+    throw new JournalRequestError("revision_conflict", "Photo is missing or the journal changed", 409);
+  }
+  return journalDay(database, id);
 }

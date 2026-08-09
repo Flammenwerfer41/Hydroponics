@@ -6,6 +6,7 @@ import {
   parseJournalInput,
   parseJournalListQuery
 } from "../src/journal/contract.js";
+import { parsePhotoUpload } from "../src/journal/photo.js";
 
 test("normalizes a daily journal with crop sections and manual values", () => {
   const result = parseJournalInput({
@@ -102,5 +103,41 @@ test("builds exact JST calendar filters and validates query parameters", () => {
   assert.throws(
     () => parseJournalListQuery(new URL("https://worker.example/admin/api/journal?year=2026&month=2&day=30")),
     (error) => error.code === "invalid_filter"
+  );
+});
+
+test("accepts one compressed photo and thumbnail with a journal revision", () => {
+  const form = new FormData();
+  form.set("photo", new Blob([new Uint8Array(1200)], { type: "image/jpeg" }), "photo.jpg");
+  form.set("thumbnail", new Blob([new Uint8Array(300)], { type: "image/jpeg" }), "thumb.jpg");
+  form.set("revision", "3");
+  form.set("width", "1600");
+  form.set("height", "900");
+
+  const result = parsePhotoUpload(form);
+  assert.equal(result.revision, 3);
+  assert.equal(result.width, 1600);
+  assert.equal(result.photo.size, 1200);
+  assert.equal(result.thumbnail.size, 300);
+});
+
+test("rejects unsupported and oversized journal photos", () => {
+  const unsupported = new FormData();
+  unsupported.set("photo", new Blob(["x"], { type: "image/png" }), "photo.png");
+  unsupported.set("thumbnail", new Blob(["x"], { type: "image/png" }), "thumb.png");
+  unsupported.set("revision", "1");
+  unsupported.set("width", "100");
+  unsupported.set("height", "100");
+  assert.throws(() => parsePhotoUpload(unsupported), /JPEG or WebP/);
+
+  const oversized = new FormData();
+  oversized.set("photo", new Blob([new Uint8Array(2_000_001)], { type: "image/jpeg" }), "photo.jpg");
+  oversized.set("thumbnail", new Blob(["x"], { type: "image/jpeg" }), "thumb.jpg");
+  oversized.set("revision", "1");
+  oversized.set("width", "1600");
+  oversized.set("height", "900");
+  assert.throws(
+    () => parsePhotoUpload(oversized),
+    (error) => error instanceof JournalRequestError && error.status === 413
   );
 });

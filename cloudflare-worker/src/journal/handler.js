@@ -1,11 +1,15 @@
 import { authenticateAdmin } from "../admin/access.js";
 import { JournalRequestError, parseJournalInput, parseJournalListQuery } from "./contract.js";
+import { parsePhotoUpload, photoExtension } from "./photo.js";
 import {
+  attachJournalPhoto,
   createJournalDay,
   deleteJournalDay,
   journalCatalog,
   journalDay,
+  journalPhotoObject,
   listJournalDays,
+  removeJournalPhoto,
   updateJournalDay
 } from "./store.js";
 
@@ -41,14 +45,143 @@ function resourceId(path) {
   return match?.[1] ?? null;
 }
 
+function photoResourceId(path) {
+  const match = path.match(/^\/admin\/api\/journal\/([a-f0-9-]{36})\/photo$/);
+  return match?.[1] ?? null;
+}
+
+function revisionHeader(request) {
+  const raw = request.headers.get("X-Journal-Revision");
+  if (!/^\d+$/.test(raw || "") || Number(raw) < 1) {
+    throw new JournalRequestError(
+      "invalid_revision",
+      "X-Journal-Revision must be a positive integer"
+    );
+  }
+  return Number(raw);
+}
+
+async function removeObjects(bucket, photo) {
+  if (!bucket || !photo) return;
+  await Promise.allSettled([
+    bucket.delete(photo.full_object_key),
+    bucket.delete(photo.thumbnail_object_key)
+  ]);
+}
+
+async function photoBody(database, bucket, id, request) {
+  if (!bucket) return error("photo_storage_unavailable", "Photo storage is unavailable", 503);
+  const metadata = await journalPhotoObject(database, id);
+  if (!metadata) return error("not_found", "Journal photo not found", 404);
+  const variant = new URL(request.url).searchParams.get("variant") || "full";
+  if (!["full", "thumbnail"].includes(variant)) {
+    return error("invalid_variant", "variant must be full or thumbnail");
+  }
+  const key = variant === "thumbnail" ? metadata.thumbnail_object_key : metadata.full_object_key;
+  const object = await bucket.get(key);
+  if (!object) return error("not_found", "Journal photo object not found", 404);
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": metadata.mime_type,
+      "Content-Length": String(object.size),
+      "Cache-Control": "private, max-age=3600",
+      "ETag": object.httpEtag,
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
+async function putPhoto(database, bucket, id, request, actor) {
+  if (!bucket) return error("photo_storage_unavailable", "Photo storage is unavailable", 503);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
+    throw new JournalRequestError(
+      "unsupported_media_type",
+      "Photo upload must use multipart/form-data",
+      415
+    );
+  }
+  const existingEntry = await journalDay(database, id);
+  if (!existingEntry) return error("not_found", "Journal not found", 404);
+  const previous = await journalPhotoObject(database, id);
+  let upload;
+  try {
+    upload = parsePhotoUpload(await request.formData());
+  } catch (caught) {
+    if (caught instanceof JournalRequestError) throw caught;
+    throw new JournalRequestError("invalid_photo", "Photo form could not be read");
+  }
+
+  const version = crypto.randomUUID();
+  const extension = photoExtension(upload.mimeType);
+  const fullObjectKey = `journal/${id}/${version}/photo.${extension}`;
+  const thumbnailObjectKey = `journal/${id}/${version}/thumbnail.${extension}`;
+  const metadata = { journalId: id, uploadedBy: actor };
+  try {
+    await bucket.put(fullObjectKey, upload.photo, {
+      httpMetadata: { contentType: upload.mimeType },
+      customMetadata: metadata
+    });
+    await bucket.put(thumbnailObjectKey, upload.thumbnail, {
+      httpMetadata: { contentType: upload.mimeType },
+      customMetadata: metadata
+    });
+    const entry = await attachJournalPhoto(database, id, {
+      fullObjectKey,
+      thumbnailObjectKey,
+      mimeType: upload.mimeType,
+      byteSize: upload.photo.size,
+      thumbnailByteSize: upload.thumbnail.size,
+      width: upload.width,
+      height: upload.height
+    }, actor, upload.revision);
+    await removeObjects(bucket, previous);
+    return response({ schema_version: 1, entry });
+  } catch (caught) {
+    await removeObjects(bucket, {
+      full_object_key: fullObjectKey,
+      thumbnail_object_key: thumbnailObjectKey
+    });
+    throw caught;
+  }
+}
+
 export async function handleJournalAdmin(request, environment, path) {
   if (!environment.HYDROPONICS_DB) return error("database_unavailable", "Database unavailable", 503);
   const admin = await authenticateAdmin(request, environment);
   if (!admin) return error("unauthorized", "Cloudflare Access authentication is required", 401);
   const actor = admin.email || admin.id;
   const id = resourceId(path);
+  const photoId = photoResourceId(path);
 
   try {
+    if (request.method === "GET" && photoId) {
+      return photoBody(environment.HYDROPONICS_DB, environment.JOURNAL_PHOTOS, photoId, request);
+    }
+    if (request.method === "PUT" && photoId) {
+      return putPhoto(
+        environment.HYDROPONICS_DB,
+        environment.JOURNAL_PHOTOS,
+        photoId,
+        request,
+        actor
+      );
+    }
+    if (request.method === "DELETE" && photoId) {
+      if (!environment.JOURNAL_PHOTOS) {
+        return error("photo_storage_unavailable", "Photo storage is unavailable", 503);
+      }
+      const previous = await journalPhotoObject(environment.HYDROPONICS_DB, photoId);
+      if (!previous) return error("not_found", "Journal photo not found", 404);
+      const entry = await removeJournalPhoto(
+        environment.HYDROPONICS_DB,
+        photoId,
+        actor,
+        revisionHeader(request)
+      );
+      await removeObjects(environment.JOURNAL_PHOTOS, previous);
+      return response({ schema_version: 1, entry });
+    }
     if (request.method === "GET" && path === "/admin/api/journal/meta") {
       return response({ schema_version: 1, ...(await journalCatalog(environment.HYDROPONICS_DB)) });
     }
@@ -75,7 +208,9 @@ export async function handleJournalAdmin(request, environment, path) {
       return entry ? response({ schema_version: 1, entry }) : error("not_found", "Journal not found", 404);
     }
     if (request.method === "DELETE" && id) {
+      const photo = await journalPhotoObject(environment.HYDROPONICS_DB, id);
       const deleted = await deleteJournalDay(environment.HYDROPONICS_DB, id, actor);
+      if (deleted) await removeObjects(environment.JOURNAL_PHOTOS, photo);
       return deleted ? response({ schema_version: 1, deleted: true }) : error("not_found", "Journal not found", 404);
     }
     return error("not_found", "Journal route not found", 404);
