@@ -66,6 +66,24 @@ function formatDate(value) {
   return `${year}년 ${month}월 ${day}일`;
 }
 
+function formatUpdatedAt(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Tokyo",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function valueBadge(text) {
+  const value = document.createElement("span");
+  value.className = "card-value";
+  value.textContent = text;
+  return value;
+}
+
 function summaryText(entry) {
   const note = (entry.common_note || "").replace(/\s+/g, " ").trim();
   if (note) return note.length > 100 ? `${note.slice(0, 100)}…` : note;
@@ -110,12 +128,7 @@ function renderList(entries) {
     summary.textContent = summaryText(entry);
     const values = document.createElement("div");
     values.className = "card-values";
-    const appendValue = (text) => {
-      const value = document.createElement("span");
-      value.className = "card-value";
-      value.textContent = text;
-      values.append(value);
-    };
+    const appendValue = (text) => values.append(valueBadge(text));
     if (entry.solution_ph !== null) appendValue(`pH ${entry.solution_ph}`);
     if (entry.electrical_conductivity !== null) appendValue(`EC ${entry.electrical_conductivity} mS/cm`);
     if (entry.solution_added_volume !== null) appendValue(`${liquidLabel(entry.solution_added_liquid_type)} ${entry.solution_added_volume} L 보충`);
@@ -204,6 +217,69 @@ function metricValue(entry, name) {
   return entry?.measurements?.[name]?.value ?? "";
 }
 
+function renderDetail(entry) {
+  state.current = entry;
+  element("detailDate").textContent = formatDate(entry.journal_date);
+  const visibility = element("detailVisibility");
+  visibility.className = `visibility ${entry.visibility}`;
+  visibility.textContent = entry.visibility === "public" ? "공개 예정" : "비공개";
+  element("detailUpdatedAt").textContent = `수정 ${formatUpdatedAt(entry.updated_at)}`;
+
+  const commonNote = element("detailCommonNote");
+  commonNote.textContent = entry.common_note || "공통 관리 기록이 없습니다.";
+  commonNote.classList.toggle("muted", !entry.common_note);
+
+  const values = element("detailValues");
+  values.replaceChildren();
+  const ph = metricValue(entry, "solution_ph");
+  const ec = metricValue(entry, "electrical_conductivity");
+  const topUp = metricValue(entry, "solution_added_volume");
+  if (ph !== "") values.append(valueBadge(`pH ${ph}`));
+  if (ec !== "") values.append(valueBadge(`EC ${ec} mS/cm`));
+  if (topUp !== "") {
+    const type = entry.measurements.solution_added_volume.qualifier;
+    values.append(valueBadge(`${liquidLabel(type)} ${topUp} L 보충`));
+  }
+  values.hidden = values.children.length === 0;
+
+  const crops = element("detailCropSections");
+  crops.replaceChildren();
+  entry.sections.forEach((section) => {
+    const article = document.createElement("article");
+    article.className = "detail-crop";
+    const head = document.createElement("div");
+    head.className = "detail-crop-head";
+    const heading = document.createElement("div");
+    const name = document.createElement("h3");
+    name.textContent = section.crop_name;
+    heading.append(name);
+    if (section.title) {
+      const title = document.createElement("p");
+      title.className = "detail-crop-title";
+      title.textContent = section.title;
+      heading.append(title);
+    }
+    head.append(heading);
+    const body = document.createElement("p");
+    body.className = "detail-crop-body";
+    body.textContent = section.body;
+    article.append(head, body);
+    if (section.tags.length) {
+      const tags = document.createElement("div");
+      tags.className = "detail-tags";
+      section.tags.forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = tag.name;
+        tags.append(chip);
+      });
+      article.append(tags);
+    }
+    crops.append(article);
+  });
+  element("detailEmptyCrops").hidden = entry.sections.length > 0;
+}
+
 function resetEditor(entry = null) {
   state.current = entry;
   element("editorTitle").textContent = entry ? formatDate(entry.journal_date) : "새 재배일지";
@@ -222,12 +298,21 @@ function resetEditor(entry = null) {
 
 function showEditor() {
   element("listView").hidden = true;
+  element("detailView").hidden = true;
   element("editorView").hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showDetail() {
+  element("listView").hidden = true;
+  element("editorView").hidden = true;
+  element("detailView").hidden = false;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function showList() {
   element("editorView").hidden = true;
+  element("detailView").hidden = true;
   element("listView").hidden = false;
   state.current = null;
   loadList();
@@ -237,8 +322,8 @@ async function openEntry(id) {
   notice("일지 상세 내용을 불러오는 중입니다.");
   try {
     const result = await api(`/admin/api/journal/${id}`);
-    resetEditor(result.entry);
-    showEditor();
+    renderDetail(result.entry);
+    showDetail();
     notice("일지를 불러왔습니다.", "success");
   } catch (error) {
     notice(`일지 조회 실패: ${error.message}`, "error");
@@ -281,7 +366,8 @@ element("journalForm").addEventListener("submit", async (event) => {
     const method = state.current ? "PUT" : "POST";
     const path = state.current ? `/admin/api/journal/${state.current.id}` : "/admin/api/journal";
     const result = await api(path, { method, body: JSON.stringify(formPayload()) });
-    resetEditor(result.entry);
+    renderDetail(result.entry);
+    showDetail();
     notice("재배일지를 저장했습니다.", "success");
   } catch (error) {
     notice(`저장 실패: ${error.message}`, "error");
@@ -305,7 +391,17 @@ element("deleteEntry").addEventListener("click", async () => {
 });
 
 element("newEntry").addEventListener("click", () => { resetEditor(); showEditor(); notice("새 일지를 작성합니다."); });
-element("backToList").addEventListener("click", showList);
+element("detailBackToList").addEventListener("click", showList);
+element("editEntry").addEventListener("click", () => { resetEditor(state.current); showEditor(); notice("일지를 수정합니다."); });
+element("backToList").addEventListener("click", () => {
+  if (state.current) {
+    renderDetail(state.current);
+    showDetail();
+    notice("수정을 취소하고 일지로 돌아왔습니다.");
+  } else {
+    showList();
+  }
+});
 element("addSection").addEventListener("click", () => addSection());
 ["filterYear", "filterMonth", "filterDay", "filterCrop", "filterTag"].forEach((id) => {
   element(id).addEventListener("change", () => {

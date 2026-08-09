@@ -18,6 +18,22 @@ textarea { resize:vertical; line-height:1.65; }
 .card-values { gap:7px; color:var(--muted); font-size:.78rem; }
 .card-value { display:inline-flex; align-items:center; min-height:30px; padding:.28rem .55rem; border-radius:9px; background:rgba(110,130,120,.09); white-space:nowrap; }
 .empty-list { text-align:center; padding:54px 20px; border:1px dashed var(--line); border-radius:20px; color:var(--muted); }
+.detail-heading { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:16px; margin-bottom:16px; }
+.detail-title { min-width:0; }
+.detail-title p,.detail-title h2 { margin:0; }
+.detail-panel { margin-bottom:16px; }
+.detail-meta { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; color:var(--muted); font-size:.78rem; }
+.detail-block { margin-top:24px; }
+.detail-copy { margin:14px 0 0; white-space:pre-wrap; line-height:1.75; overflow-wrap:anywhere; }
+.detail-copy.muted { color:var(--muted); }
+.detail-values { display:flex; flex-wrap:wrap; gap:8px; margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
+.detail-crops { display:grid; gap:14px; margin-top:18px; }
+.detail-crop { border:1px solid var(--line); border-radius:18px; padding:18px; background:rgba(120,150,135,.045); }
+.detail-crop-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.detail-crop h3 { margin:0; font-size:1.08rem; }
+.detail-crop-title { margin:7px 0 0; color:var(--muted); font-size:.82rem; font-weight:750; }
+.detail-crop-body { margin:16px 0 0; white-space:pre-wrap; line-height:1.75; overflow-wrap:anywhere; }
+.detail-tags { display:flex; flex-wrap:wrap; gap:7px; margin-top:16px; }
 .editor-heading { display:flex; align-items:center; gap:16px; margin-bottom:16px; }
 .editor-heading p,.editor-heading h2 { margin:0; }
 .form-panel { margin-bottom:16px; }
@@ -55,4 +71,6 @@ textarea { resize:vertical; line-height:1.65; }
   .remove-section { align-self:flex-end; }
   .editor-actions { flex-direction:column; }
   .editor-actions button { width:100%; }
+  .detail-heading { grid-template-columns:auto 1fr; }
+  .detail-heading .primary { grid-column:1/-1; width:100%; }
 }
