@@ -19,6 +19,9 @@ const HISTORY_METRICS = Object.freeze([
 const CURRENT_REFRESH_MS = 60_000;
 const CURRENT_LOOKBACK_RESULTS = 30;
 const HISTORY_REFRESH_MS = 120_000;
+const HISTORY_FULL_REFRESH_MS = 60 * 60_000;
+const RAW_HISTORY_OVERLAP_MS = 10 * 60_000;
+const AGGREGATE_HISTORY_OVERLAP_MS = 2 * 60 * 60_000;
 const WEATHER_REFRESH_MS = 15 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const JST_TIME_ZONE = "Asia/Tokyo";
@@ -415,6 +418,7 @@ const state = {
   currentController: null,
   currentTimer: 0,
   historyTimer: 0,
+  historyFullRefreshAt: 0,
   weatherTimer: 0,
   resizeFrame: 0,
   rangeStart: 0,
@@ -967,11 +971,34 @@ function parseAggregateHistory(buckets) {
     .sort((a, b) => a.time - b.time);
 }
 
-async function fetchHistoryPoints(config, range) {
+function historyWindowQuery(config, window) {
+  if (!window) return config.query;
+  const parameters = new URLSearchParams({
+    from: new Date(window.from).toISOString(),
+    to: new Date(window.to).toISOString(),
+    device_id: "esp32-01"
+  });
+  if (config.paginated) parameters.set("limit", "1000");
+  return parameters.toString();
+}
+
+function lightHistoryQuery(range, window) {
+  const parameters = new URLSearchParams({
+    granularity: range === "day" ? "raw" : "hourly"
+  });
+  if (window) {
+    parameters.set("from", new Date(window.from).toISOString());
+    parameters.set("to", new Date(window.to).toISOString());
+  } else {
+    parameters.set("days", String(range === "month" ? 30 : range === "week" ? 7 : 2));
+  }
+  return parameters.toString();
+}
+
+async function fetchHistoryPoints(config, range, window = null) {
   const metrics = `metrics=${HISTORY_METRICS.join(",")}`;
   const lightPromise = fetch(dataApiUrl(
-    `/v1/light/history?days=${range === "month" ? 30 : range === "week" ? 7 : 2}` +
-    `&granularity=${range === "day" ? "raw" : "hourly"}`
+    `/v1/light/history?${lightHistoryQuery(range, window)}`
   ), { cache: "no-store" })
     .then((response) => response.ok ? response.json() : { points: [] })
     .then((data) => (Array.isArray(data?.points) ? data.points : []).map((point) => ({
@@ -981,7 +1008,7 @@ async function fetchHistoryPoints(config, range) {
     .catch(() => []);
   if (!config.paginated) {
     const data = await fetchJson(
-      dataApiUrl(`${config.endpoint}?${config.query}&${metrics}`),
+      dataApiUrl(`${config.endpoint}?${historyWindowQuery(config, window)}&${metrics}`),
       "historyController"
     );
     return {
@@ -995,7 +1022,9 @@ async function fetchHistoryPoints(config, range) {
   for (let page = 0; page < 4; page += 1) {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const data = await fetchJson(
-      dataApiUrl(`${config.endpoint}?${config.query}&${metrics}${cursorQuery}`),
+      dataApiUrl(
+        `${config.endpoint}?${historyWindowQuery(config, window)}&${metrics}${cursorQuery}`
+      ),
       "historyController"
     );
     if (Array.isArray(data?.readings)) readings.push(...data.readings);
@@ -1003,6 +1032,31 @@ async function fetchHistoryPoints(config, range) {
     if (!cursor) return { sensorPoints: parseRawHistory(readings), lightPoints: await lightPromise };
   }
   throw new Error("History pagination exceeded the safety limit");
+}
+
+function mergeTimeSeries(current, incoming, earliest, end) {
+  const pointsByTime = new Map();
+  current.forEach((point) => pointsByTime.set(point.time, point));
+  incoming.forEach((point) => pointsByTime.set(point.time, point));
+  return [...pointsByTime.values()]
+    .filter((point) => point.time >= earliest && point.time <= end)
+    .sort((left, right) => left.time - right.time);
+}
+
+function incrementalHistoryWindow(range, domain) {
+  if (!state.history.length || !state.lightHistory.length) return null;
+  if (Date.now() - state.historyFullRefreshAt >= HISTORY_FULL_REFRESH_MS) return null;
+
+  const latestSensorTime = state.history[state.history.length - 1]?.time;
+  const latestLightTime = state.lightHistory[state.lightHistory.length - 1]?.time;
+  if (!Number.isFinite(latestSensorTime) || !Number.isFinite(latestLightTime)) return null;
+
+  const earliest = range === "day" ? domain.previousStart : domain.start;
+  const overlap = range === "day" ? RAW_HISTORY_OVERLAP_MS : AGGREGATE_HISTORY_OVERLAP_MS;
+  return {
+    from: Math.max(earliest, Math.min(latestSensorTime, latestLightTime) - overlap),
+    to: Date.now() + 60_000
+  };
 }
 
 function setRangeButtons(activeRange, disabled = false) {
@@ -1035,10 +1089,14 @@ function renderHistoryStatus() {
   element("historyResolution").textContent = t(config.resolutionKey);
 }
 
-async function loadHistory(range, announceLoading = true) {
+async function loadHistory(range, announceLoading = true, preferIncremental = false) {
   if (document.hidden) return;
   const config = RANGE_CONFIG[range] || RANGE_CONFIG.day;
   const sequence = ++state.historySequence;
+  const domain = historyDomain(range);
+  const window = preferIncremental && state.range === range
+    ? incrementalHistoryWindow(range, domain)
+    : null;
 
   if (announceLoading) {
     state.historyStatus = "loading";
@@ -1048,19 +1106,23 @@ async function loadHistory(range, announceLoading = true) {
   }
 
   try {
-    const { sensorPoints: points, lightPoints } = await fetchHistoryPoints(config, range);
+    const { sensorPoints: points, lightPoints } = await fetchHistoryPoints(config, range, window);
     if (sequence !== state.historySequence) return;
     enableWeather();
-    const domain = historyDomain(range);
     const earliest = range === "day" ? domain.previousStart : domain.start;
-    const visiblePoints = points
-      .filter((point) => point.time >= earliest && point.time <= domain.end);
+    const visiblePoints = window
+      ? mergeTimeSeries(state.history, points, earliest, domain.end)
+      : points.filter((point) => point.time >= earliest && point.time <= domain.end);
+    const visibleLightPoints = window
+      ? mergeTimeSeries(state.lightHistory, lightPoints, earliest, domain.end)
+      : lightPoints
+        .filter((point) => point.time >= earliest && point.time <= domain.end)
+        .sort((left, right) => left.time - right.time);
     state.range = range;
     state.historyTargetRange = range;
     state.history = visiblePoints;
-    state.lightHistory = lightPoints
-      .filter((point) => point.time >= earliest && point.time <= domain.end)
-      .sort((left, right) => left.time - right.time);
+    state.lightHistory = visibleLightPoints;
+    if (!window) state.historyFullRefreshAt = Date.now();
     state.historyStatus = "ready";
     state.rangeStart = domain.start;
     state.rangeEnd = domain.end;
@@ -1074,6 +1136,12 @@ async function loadHistory(range, announceLoading = true) {
     drawAllCharts();
   } catch (error) {
     if (sequence !== state.historySequence || error.name === "AbortError") return;
+    if (window && state.history.length) {
+      state.historyStatus = "ready";
+      setRangeButtons(state.range, false);
+      renderHistoryStatus();
+      return;
+    }
     state.historyStatus = "error";
     setRangeButtons(state.range, false);
     renderHistoryStatus();
@@ -1605,7 +1673,7 @@ async function runCurrentLoop() {
 }
 
 async function runHistoryLoop() {
-  await loadHistory(state.range, false);
+  await loadHistory(state.range, false, true);
   scheduleHistory();
 }
 
@@ -1628,7 +1696,8 @@ function stopPolling() {
 
 function startPolling() {
   refreshCurrent().finally(() => scheduleCurrent());
-  loadHistory(state.range).finally(() => scheduleHistory());
+  loadHistory(state.range, state.historyStatus !== "ready", true)
+    .finally(() => scheduleHistory());
   if (state.weatherEnabled) {
     refreshWeather().finally(() => scheduleWeather());
   }

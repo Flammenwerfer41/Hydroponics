@@ -68,6 +68,49 @@ function validateAc(body) {
   return { power: "on", mode, fan, temperature };
 }
 
+function historyTimestamp(value, name) {
+  if (value === null) return null;
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    throw new Error(`${name} must include a timezone offset`);
+  }
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) throw new Error(`${name} must be a valid timestamp`);
+  return new Date(milliseconds);
+}
+
+export function lightHistoryRange(url, now = new Date()) {
+  const granularity = url.searchParams.get("granularity") || "raw";
+  if (!["raw", "hourly"].includes(granularity)) {
+    throw new Error("granularity must be raw or hourly");
+  }
+
+  const hasExplicitRange = url.searchParams.has("from") || url.searchParams.has("to");
+  if (hasExplicitRange && url.searchParams.has("days")) {
+    throw new Error("days cannot be combined with from or to");
+  }
+
+  let from;
+  let to;
+  if (hasExplicitRange) {
+    to = historyTimestamp(url.searchParams.get("to"), "to") || new Date(now);
+    from = historyTimestamp(url.searchParams.get("from"), "from");
+    if (!from) throw new Error("from is required when using an explicit range");
+  } else {
+    const days = Number(url.searchParams.get("days") || 2);
+    if (!Number.isInteger(days) || days < 1 || days > 31) {
+      throw new Error("days must be between 1 and 31");
+    }
+    to = new Date(now);
+    from = new Date(to.getTime() - days * 86400000);
+  }
+
+  if (from.getTime() >= to.getTime()) throw new Error("from must be earlier than to");
+  if (to.getTime() - from.getTime() > 31 * 86400000) {
+    throw new Error("light history range cannot exceed 31 days");
+  }
+  return { granularity, from, to };
+}
+
 export async function handlePublicLight(request, environment, path) {
   if (request.method !== "GET") return publicResponse({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
   if (!environment.HYDROPONICS_DB) return publicResponse({ error: { code: "database_unavailable", message: "Database unavailable" } }, 503);
@@ -76,17 +119,22 @@ export async function handlePublicLight(request, environment, path) {
   }
   if (path === "/v1/light/history") {
     const url = new URL(request.url);
-    const days = Number(url.searchParams.get("days") || 2);
-    const granularity = url.searchParams.get("granularity") || "raw";
-    if (!Number.isInteger(days) || days < 1 || days > 31 || !["raw", "hourly"].includes(granularity)) {
-      return publicResponse({ error: { code: "invalid_query", message: "days must be 1-31 and granularity raw or hourly" } }, 400);
+    let range;
+    try {
+      range = lightHistoryRange(url);
+    } catch (caught) {
+      return publicResponse({ error: { code: "invalid_query", message: caught.message } }, 400);
     }
-    const to = new Date();
-    const from = new Date(to.getTime() - days * 86400000);
     const points = await telemetryHistory(
-      environment.HYDROPONICS_DB, from.toISOString(), to.toISOString(), granularity
+      environment.HYDROPONICS_DB, range.from.toISOString(), range.to.toISOString(), range.granularity
     );
-    return publicResponse({ schema_version: 1, granularity, from: from.toISOString(), to: to.toISOString(), points });
+    return publicResponse({
+      schema_version: 1,
+      granularity: range.granularity,
+      from: range.from.toISOString(),
+      to: range.to.toISOString(),
+      points
+    });
   }
   return publicResponse({ error: { code: "not_found", message: "Not found" } }, 404);
 }
