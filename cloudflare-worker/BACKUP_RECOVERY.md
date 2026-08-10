@@ -35,8 +35,10 @@ retain the exact bytes covered by the compressed SHA-256 value.
 3. Create a narrowly scoped Cloudflare API token for GitHub Actions with D1 read/export
    and R2 object write permissions for this account. Store it as the GitHub Actions secret
    `CLOUDFLARE_BACKUP_API_TOKEN`. Store the account ID as `CLOUDFLARE_ACCOUNT_ID`.
-4. Set the GitHub Actions repository variable `CLOUDFLARE_BACKUP_ENABLED=true`.
-5. Run **Backup Cloudflare data** manually once and inspect the R2 objects before relying
+4. Store the Cloudflare Access service-token credentials used by the protected admin export
+   as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` GitHub Actions secrets.
+5. Set the GitHub Actions repository variable `CLOUDFLARE_BACKUP_ENABLED=true`.
+6. Run **Backup Cloudflare data** manually once and inspect the R2 objects before relying
    on the schedule.
 
 The scheduled job is intentionally skipped until the enable variable exists, so merging the
@@ -49,6 +51,9 @@ From `cloudflare-worker`, an authenticated Wrangler session can run:
 ```powershell
 npm run backup:run
 ```
+
+The process also requires `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in its
+environment so the portable sensor export can pass Cloudflare Access.
 
 `--dry-run` performs the D1 export, clean local import and checksum generation without R2 writes:
 

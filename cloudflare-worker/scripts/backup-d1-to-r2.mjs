@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   artifactMetadata,
+  cloudflareAccessHeaders,
   gzipArtifact,
   jstDateParts,
   normalizeCountRows,
@@ -101,7 +102,7 @@ async function main() {
       "d1", "execute", DATABASE,
       "--local", "--persist-to", validationPersistence,
       "--file", sqlPath, "--yes"
-    ]);
+    ], { stdio: ["ignore", "ignore", "pipe"] });
     const countsOutput = wrangler([
       "d1", "execute", DATABASE,
       "--local", "--persist-to", validationPersistence, "--json",
@@ -110,8 +111,13 @@ async function main() {
     const tableCounts = normalizeCountRows(parseWranglerJson(countsOutput));
 
     const sensorResponse = await fetch(
-      `${HISTORY_URL}/v1/export.json?date=${encodeURIComponent(yesterday)}`,
-      { headers: { Accept: "application/json" } }
+      `${HISTORY_URL}/admin/api/export.json?date=${encodeURIComponent(yesterday)}`,
+      {
+        headers: cloudflareAccessHeaders(
+          process.env.CF_ACCESS_CLIENT_ID,
+          process.env.CF_ACCESS_CLIENT_SECRET
+        )
+      }
     );
     if (!sensorResponse.ok) {
       throw new Error(`Sensor export failed with HTTP ${sensorResponse.status}`);

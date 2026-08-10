@@ -41,6 +41,25 @@ export function gzipArtifact(buffer) {
   return gzipSync(buffer, { level: 9, mtime: 0 });
 }
 
+export function cloudflareAccessHeaders(clientId, clientSecret) {
+  const normalizedId = typeof clientId === "string"
+    ? clientId.replace(/^\uFEFF/, "").trim()
+    : "";
+  const normalizedSecret = typeof clientSecret === "string"
+    ? clientSecret.replace(/^\uFEFF/, "").trim()
+    : "";
+  if (!normalizedId || !normalizedSecret) {
+    throw new Error(
+      "CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are required for the protected sensor export"
+    );
+  }
+  return {
+    Accept: "application/json",
+    "CF-Access-Client-Id": normalizedId,
+    "CF-Access-Client-Secret": normalizedSecret
+  };
+}
+
 export function verifyArtifact(archive, expected) {
   if (!expected || typeof expected !== "object") {
     throw new Error("Backup manifest is missing artifact metadata");

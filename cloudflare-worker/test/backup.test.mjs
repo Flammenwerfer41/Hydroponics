@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   artifactMetadata,
+  cloudflareAccessHeaders,
   compareTableCounts,
   DATABASE_TABLES,
   gzipArtifact,
@@ -29,6 +30,15 @@ test("checksum mismatch rejects a damaged archive", () => {
   const damaged = Buffer.from(archive);
   damaged[damaged.length - 1] ^= 1;
   assert.throws(() => verifyArtifact(damaged, metadata), /checksum/);
+});
+
+test("protected backup export uses normalized Cloudflare Access credentials", () => {
+  assert.deepEqual(cloudflareAccessHeaders("\uFEFF client-id.access ", " secret "), {
+    Accept: "application/json",
+    "CF-Access-Client-Id": "client-id.access",
+    "CF-Access-Client-Secret": "secret"
+  });
+  assert.throws(() => cloudflareAccessHeaders("", "secret"), /CF_ACCESS_CLIENT_ID/);
 });
 
 test("JST calendar subtraction is independent of UTC date", () => {
