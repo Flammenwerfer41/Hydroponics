@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -7,7 +7,6 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(directory, "..");
 const output = path.resolve(root, "../docs/admin/journal/image-codec");
 
-await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 
 await build({
