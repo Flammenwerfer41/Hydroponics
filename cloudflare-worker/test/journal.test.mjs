@@ -108,8 +108,8 @@ test("builds exact JST calendar filters and validates query parameters", () => {
 
 test("accepts one compressed photo and thumbnail with a journal revision", () => {
   const form = new FormData();
-  form.set("photo", new Blob([new Uint8Array(1200)], { type: "image/jpeg" }), "photo.jpg");
-  form.set("thumbnail", new Blob([new Uint8Array(300)], { type: "image/jpeg" }), "thumb.jpg");
+  form.set("photo", new Blob([new Uint8Array(1200)], { type: "image/webp" }), "photo.webp");
+  form.set("thumbnail", new Blob([new Uint8Array(300)], { type: "image/webp" }), "thumb.webp");
   form.set("revision", "3");
   form.set("width", "1600");
   form.set("height", "900");
@@ -128,11 +128,11 @@ test("rejects unsupported and oversized journal photos", () => {
   unsupported.set("revision", "1");
   unsupported.set("width", "100");
   unsupported.set("height", "100");
-  assert.throws(() => parsePhotoUpload(unsupported), /JPEG or WebP/);
+  assert.throws(() => parsePhotoUpload(unsupported), /must be WebP/);
 
   const oversized = new FormData();
-  oversized.set("photo", new Blob([new Uint8Array(2_000_001)], { type: "image/jpeg" }), "photo.jpg");
-  oversized.set("thumbnail", new Blob(["x"], { type: "image/jpeg" }), "thumb.jpg");
+  oversized.set("photo", new Blob([new Uint8Array(1_000_001)], { type: "image/webp" }), "photo.webp");
+  oversized.set("thumbnail", new Blob(["x"], { type: "image/webp" }), "thumb.webp");
   oversized.set("revision", "1");
   oversized.set("width", "1600");
   oversized.set("height", "900");

@@ -45,6 +45,21 @@ function photoMetadata(row) {
   };
 }
 
+function cropPhotoMetadata(row, journalId) {
+  return {
+    id: row.id,
+    crop_id: row.crop_id,
+    mime_type: row.mime_type,
+    byte_size: row.byte_size,
+    width: row.width,
+    height: row.height,
+    sort_order: row.sort_order,
+    updated_at: row.updated_at,
+    url: `/admin/api/journal/${journalId}/crops/${row.crop_id}/photos/${row.id}`,
+    thumbnail_url: `/admin/api/journal/${journalId}/crops/${row.crop_id}/photos/${row.id}?variant=thumbnail`
+  };
+}
+
 export async function journalCatalog(database) {
   const [cropResult, tagResult, periodResult] = await Promise.all([
     database.prepare(`
@@ -131,7 +146,7 @@ export async function journalDay(database, id) {
     WHERE id = ?1 AND site_id = ?2 AND deleted_at IS NULL
   `).bind(id, SITE_ID).first();
   if (!day) return null;
-  const [valueResult, sectionResult, tagResult, photo] = await Promise.all([
+  const [valueResult, sectionResult, tagResult, photo, cropPhotoResult] = await Promise.all([
     database.prepare(`
       SELECT metric, value, unit, source, qualifier, measured_at
       FROM journal_day_values WHERE journal_day_id = ?1 ORDER BY metric
@@ -152,7 +167,13 @@ export async function journalDay(database, id) {
       SELECT mime_type AS photo_mime_type, byte_size AS photo_byte_size,
         width AS photo_width, height AS photo_height, updated_at AS photo_updated_at
       FROM journal_photos WHERE journal_day_id = ?1
-    `).bind(id).first()
+    `).bind(id).first(),
+    database.prepare(`
+      SELECT id, crop_id, mime_type, byte_size, width, height, sort_order, updated_at
+      FROM journal_crop_photos
+      WHERE journal_day_id = ?1
+      ORDER BY crop_id, sort_order, created_at
+    `).bind(id).all()
   ]);
   const tagsBySection = new Map();
   for (const tag of rows(tagResult)) {
@@ -161,13 +182,20 @@ export async function journalDay(database, id) {
     list.push(publicTag);
     tagsBySection.set(tag.journal_section_id, list);
   }
+  const photosByCrop = new Map();
+  for (const row of rows(cropPhotoResult)) {
+    const list = photosByCrop.get(row.crop_id) ?? [];
+    list.push(cropPhotoMetadata(row, id));
+    photosByCrop.set(row.crop_id, list);
+  }
   return {
     ...day,
     photo: photoMetadata({ ...photo, id }),
     measurements: valueMap(rows(valueResult)),
     sections: rows(sectionResult).map((section) => ({
       ...section,
-      tags: tagsBySection.get(section.id) ?? []
+      tags: tagsBySection.get(section.id) ?? [],
+      photos: photosByCrop.get(section.crop_id) ?? []
     }))
   };
 }
@@ -291,6 +319,17 @@ export async function updateJournalDay(database, id, input, actor, now = new Dat
     throw new JournalRequestError("revision_conflict", "The journal was updated elsewhere", 409);
   }
   await validateReferences(database, input);
+  const retainedCropIds = new Set(input.sections.map((section) => section.crop_id));
+  const removedCropWithPhotos = existing.sections.find(
+    (section) => !retainedCropIds.has(section.crop_id) && section.photos.length > 0
+  );
+  if (removedCropWithPhotos) {
+    throw new JournalRequestError(
+      "crop_photos_exist",
+      `${removedCropWithPhotos.crop_name} 사진을 먼저 삭제해 주세요`,
+      409
+    );
+  }
   const timestamp = now.toISOString();
   const statements = [database.prepare(`
     UPDATE journal_days SET journal_date = ?1, common_note = ?2, visibility = ?3,
@@ -318,6 +357,14 @@ export async function deleteJournalDay(database, id, actor, now = new Date()) {
       WHERE id = ?2 AND site_id = ?3 AND deleted_at IS NULL
     `).bind(timestamp, id, SITE_ID),
     database.prepare(`
+      DELETE FROM journal_photos WHERE journal_day_id = ?1
+        AND EXISTS (SELECT 1 FROM journal_days WHERE id = ?1 AND deleted_at = ?2)
+    `).bind(id, timestamp),
+    database.prepare(`
+      DELETE FROM journal_crop_photos WHERE journal_day_id = ?1
+        AND EXISTS (SELECT 1 FROM journal_days WHERE id = ?1 AND deleted_at = ?2)
+    `).bind(id, timestamp),
+    database.prepare(`
       INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, occurred_at)
       SELECT 'admin', ?1, 'journal.delete', 'journal_day', ?2, ?3
       WHERE EXISTS (SELECT 1 FROM journal_days WHERE id = ?2 AND deleted_at = ?3)
@@ -334,6 +381,29 @@ export async function journalPhotoObject(database, id) {
     JOIN journal_days jd ON jd.id = jp.journal_day_id
     WHERE jp.journal_day_id = ?1 AND jd.site_id = ?2 AND jd.deleted_at IS NULL
   `).bind(id, SITE_ID).first();
+}
+
+export async function journalCropPhotoObject(database, journalId, cropId, photoId) {
+  return database.prepare(`
+    SELECT jcp.id, jcp.crop_id, jcp.full_object_key, jcp.thumbnail_object_key,
+      jcp.mime_type, jcp.byte_size, jcp.thumbnail_byte_size, jcp.width, jcp.height,
+      jcp.sort_order, jcp.created_at, jcp.updated_at
+    FROM journal_crop_photos jcp
+    JOIN journal_days jd ON jd.id = jcp.journal_day_id
+    WHERE jcp.id = ?1 AND jcp.journal_day_id = ?2 AND jcp.crop_id = ?3
+      AND jd.site_id = ?4 AND jd.deleted_at IS NULL
+  `).bind(photoId, journalId, cropId, SITE_ID).first();
+}
+
+export async function journalAllPhotoObjects(database, id) {
+  const [cover, cropResult] = await Promise.all([
+    journalPhotoObject(database, id),
+    database.prepare(`
+      SELECT full_object_key, thumbnail_object_key
+      FROM journal_crop_photos WHERE journal_day_id = ?1
+    `).bind(id).all()
+  ]);
+  return [cover, ...rows(cropResult)].filter(Boolean);
 }
 
 export async function attachJournalPhoto(database, id, photo, actor, revision, now = new Date()) {
@@ -405,4 +475,110 @@ export async function removeJournalPhoto(database, id, actor, revision, now = ne
     throw new JournalRequestError("revision_conflict", "Photo is missing or the journal changed", 409);
   }
   return journalDay(database, id);
+}
+
+export async function attachJournalCropPhoto(
+  database,
+  journalId,
+  cropId,
+  photo,
+  actor,
+  revision,
+  now = new Date()
+) {
+  const entry = await journalDay(database, journalId);
+  if (!entry) return null;
+  if (!entry.sections.some((section) => section.crop_id === cropId)) {
+    throw new JournalRequestError("unknown_crop_section", "해당 작물 기록이 없습니다", 404);
+  }
+  const occupied = new Set(
+    (entry.sections.find((section) => section.crop_id === cropId)?.photos ?? [])
+      .map((item) => item.sort_order)
+  );
+  const sortOrder = [0, 1, 2, 3, 4, 5].find((value) => !occupied.has(value));
+  if (sortOrder === undefined) {
+    throw new JournalRequestError("crop_photo_limit", "작물별 사진은 최대 6장입니다", 409);
+  }
+  const photoId = crypto.randomUUID();
+  const timestamp = now.toISOString();
+  const nextRevision = revision + 1;
+  const results = await database.batch([
+    database.prepare(`
+      UPDATE journal_days SET revision = revision + 1, updated_at = ?1
+      WHERE id = ?2 AND site_id = ?3 AND revision = ?4 AND deleted_at IS NULL
+    `).bind(timestamp, journalId, SITE_ID, revision),
+    database.prepare(`
+      INSERT INTO journal_crop_photos
+        (id, journal_day_id, crop_id, full_object_key, thumbnail_object_key,
+          mime_type, byte_size, thumbnail_byte_size, width, height, sort_order,
+          uploaded_by, created_at, updated_at)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13
+      WHERE EXISTS (
+        SELECT 1 FROM journal_days WHERE id = ?2 AND revision = ?14 AND updated_at = ?13
+      )
+    `).bind(
+      photoId,
+      journalId,
+      cropId,
+      photo.fullObjectKey,
+      photo.thumbnailObjectKey,
+      photo.mimeType,
+      photo.byteSize,
+      photo.thumbnailByteSize,
+      photo.width,
+      photo.height,
+      sortOrder,
+      actor,
+      timestamp,
+      nextRevision
+    ),
+    database.prepare(`
+      INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, occurred_at)
+      SELECT 'admin', ?1, 'journal.crop_photo.put', 'journal_crop_photo', ?2, ?3
+      WHERE EXISTS (SELECT 1 FROM journal_crop_photos WHERE id = ?2)
+    `).bind(actor, photoId, timestamp)
+  ]);
+  if (Number(results?.[0]?.meta?.changes ?? 0) === 0) {
+    throw new JournalRequestError("revision_conflict", "The journal was updated elsewhere", 409);
+  }
+  return journalDay(database, journalId);
+}
+
+export async function removeJournalCropPhoto(
+  database,
+  journalId,
+  cropId,
+  photoId,
+  actor,
+  revision,
+  now = new Date()
+) {
+  const timestamp = now.toISOString();
+  const nextRevision = revision + 1;
+  const results = await database.batch([
+    database.prepare(`
+      UPDATE journal_days SET revision = revision + 1, updated_at = ?1
+      WHERE id = ?2 AND site_id = ?3 AND revision = ?4 AND deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM journal_crop_photos
+          WHERE id = ?5 AND journal_day_id = ?2 AND crop_id = ?6
+        )
+    `).bind(timestamp, journalId, SITE_ID, revision, photoId, cropId),
+    database.prepare(`
+      DELETE FROM journal_crop_photos
+      WHERE id = ?1 AND journal_day_id = ?2 AND crop_id = ?3
+        AND EXISTS (
+          SELECT 1 FROM journal_days WHERE id = ?2 AND revision = ?5 AND updated_at = ?4
+        )
+    `).bind(photoId, journalId, cropId, timestamp, nextRevision),
+    database.prepare(`
+      INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, occurred_at)
+      SELECT 'admin', ?1, 'journal.crop_photo.delete', 'journal_crop_photo', ?2, ?3
+      WHERE EXISTS (SELECT 1 FROM journal_days WHERE id = ?4 AND updated_at = ?3)
+    `).bind(actor, photoId, timestamp, journalId)
+  ]);
+  if (Number(results?.[0]?.meta?.changes ?? 0) === 0) {
+    throw new JournalRequestError("revision_conflict", "Photo is missing or the journal changed", 409);
+  }
+  return journalDay(database, journalId);
 }

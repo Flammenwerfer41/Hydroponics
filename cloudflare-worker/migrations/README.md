@@ -18,6 +18,10 @@ table. It is idempotent and preserves the original measured timestamps.
 activity tags and extensible manual values for pH, EC and nutrient-solution top-up.
 It also seeds the current basil and perilla crop catalog.
 
+`0006_journal_photos.sql` adds the single daily representative photo metadata.
+`0007_journal_crop_photos.sql` adds up to six WebP photo references per crop and
+journal day. Binary image objects remain in the private R2 bucket.
+
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
 replacement receives a new sensor ID while historical values continue to reference

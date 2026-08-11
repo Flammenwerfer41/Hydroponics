@@ -8,11 +8,14 @@
     "backfill:thingspeak": "node scripts/backfill-thingspeak-to-d1.mjs",
     "credential:create": "node scripts/create-device-credential.mjs",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "build:journal-images": "node scripts/build-journal-images.mjs",
+    "deploy": "pnpm run build:journal-images && wrangler deploy",
     "restore:verify": "node scripts/restore-d1-backup.mjs",
     "test": "node --test"
   },
   "devDependencies": {
+    "@jsquash/webp": "1.5.0",
+    "esbuild": "0.25.9",
     "wrangler": "^4.0.0"
   }
 }

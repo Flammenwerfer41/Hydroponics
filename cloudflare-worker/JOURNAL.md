@@ -12,6 +12,7 @@ management notes from crop-specific observations.
 - `journal_section_tags`: activity labels attached to crop sections
 - `journal_day_values`: named manual measurements, currently pH, EC and solution top-up
 - `journal_photos`: one R2-backed photo reference and thumbnail per journal day
+- `journal_crop_photos`: up to six R2-backed photos per crop and journal day
 
 Manual values use canonical metric names and a `source` column instead of dedicated
 columns on `journal_days`. A future pH or EC sensor can therefore write the same metric
@@ -39,6 +40,9 @@ DELETE /admin/api/journal/:id
 GET    /admin/api/journal/:id/photo[?variant=thumbnail]
 PUT    /admin/api/journal/:id/photo
 DELETE /admin/api/journal/:id/photo
+GET    /admin/api/journal/:id/crops/:cropId/photos/:photoId[?variant=thumbnail]
+POST   /admin/api/journal/:id/crops/:cropId/photos
+DELETE /admin/api/journal/:id/crops/:cropId/photos/:photoId
 ```
 
 `PUT` requires the latest positive integer `revision`. Conflicting edits return HTTP
@@ -54,10 +58,12 @@ activity filters. A daily record may contain:
 - optional pH and EC values;
 - optional solution top-up volume and liquid type;
 - optional crop sections for basil and perilla, each with free text and activity tags.
+- one representative photo for the day and up to six photos for each crop section.
 
 The administrator interface accepts either a mobile camera capture or an existing image.
-It converts the selected image to JPEG before upload, limits the long edge to 1600 pixels,
-and creates a 420-pixel thumbnail. R2 stores the image objects in the private
+It converts each selected image to WebP in a browser-side WASM worker, limits the long edge
+to 1920 pixels, and creates a 420-pixel thumbnail. A full image is capped at 1 MB and a
+thumbnail at 100 KB before transmission. R2 stores the image objects in the private
 `hydroponics-journal-photos` bucket while D1 stores only metadata and object keys. Both
 photo reads and writes remain behind Cloudflare Access. Public journal display and firmware
 changes remain outside this release.

@@ -1,3 +1,5 @@
+import { encodeWebp } from "./image-codec-client.js";
+
 const state = {
   catalog: null,
   current: null,
@@ -210,13 +212,111 @@ function sectionElement(section = {}) {
     label.append(input, name);
     tagContainer.append(label);
   });
+  article.cropPhotoState = {
+    existing: [...(section.photos || [])],
+    pending: [],
+    removed: new Set()
+  };
+  article.dataset.originalCropId = cropSelect.value;
   article.querySelector(".remove-section").addEventListener("click", () => {
+    if (article.cropPhotoState.existing.length) {
+      return notice("작물 기록을 제거하려면 저장된 사진을 먼저 삭제해 주세요.", "error");
+    }
+    revokeCropPreviewUrls(article);
     article.remove();
     updateEmptySections();
     refreshCropChoices();
   });
-  cropSelect.addEventListener("change", refreshCropChoices);
+  cropSelect.addEventListener("change", () => {
+    if (article.cropPhotoState.existing.length || article.cropPhotoState.pending.length) {
+      cropSelect.value = article.dataset.originalCropId;
+      notice("사진이 있는 작물 기록은 작물을 변경할 수 없습니다.", "error");
+      return;
+    }
+    article.dataset.originalCropId = cropSelect.value;
+    refreshCropChoices();
+  });
+  const input = article.querySelector(".crop-photo-input");
+  article.querySelector(".select-crop-photos").addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    await chooseCropPhotos(article, [...(input.files || [])]);
+    input.value = "";
+  });
+  renderCropPhotoEditor(article);
   return fragment;
+}
+
+function activeCropPhotoCount(article) {
+  const state = article.cropPhotoState;
+  return state.existing.filter((photo) => !state.removed.has(photo.id)).length + state.pending.length;
+}
+
+function revokeCropPreviewUrls(article) {
+  for (const photo of article?.cropPhotoState?.pending || []) URL.revokeObjectURL(photo.previewUrl);
+}
+
+function renderCropPhotoEditor(article) {
+  const container = article.querySelector(".crop-photo-grid");
+  container.replaceChildren();
+  const photoState = article.cropPhotoState;
+  const visibleExisting = photoState.existing.filter((photo) => !photoState.removed.has(photo.id));
+  const renderCard = (photo, pending = false) => {
+    const card = document.createElement("div");
+    card.className = `crop-photo-card${pending ? " pending" : ""}`;
+    const image = document.createElement("img");
+    image.alt = "작물 기록 사진";
+    image.src = pending ? photo.previewUrl : photoUrl(photo.thumbnail_url, photo.updated_at);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "crop-photo-remove";
+    remove.setAttribute("aria-label", "사진 제거");
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      if (pending) {
+        URL.revokeObjectURL(photo.previewUrl);
+        photoState.pending = photoState.pending.filter((item) => item !== photo);
+      } else {
+        photoState.removed.add(photo.id);
+      }
+      renderCropPhotoEditor(article);
+    });
+    card.append(image, remove);
+    container.append(card);
+  };
+  visibleExisting.forEach((photo) => renderCard(photo));
+  photoState.pending.forEach((photo) => renderCard(photo, true));
+  article.querySelector(".crop-photo-empty").hidden = activeCropPhotoCount(article) > 0;
+  article.querySelector(".select-crop-photos").disabled = state.busy || activeCropPhotoCount(article) >= 6;
+}
+
+async function chooseCropPhotos(article, files) {
+  if (!files.length || state.busy) return;
+  const remaining = 6 - activeCropPhotoCount(article);
+  if (remaining <= 0) return notice("작물별 사진은 최대 6장입니다.", "error");
+  const selected = files.slice(0, remaining);
+  setBusy(true);
+  try {
+    for (let index = 0; index < selected.length; index += 1) {
+      notice(`작물 사진을 WebP로 변환하는 중입니다. (${index + 1}/${selected.length})`);
+      const prepared = await preparePhoto(selected[index]);
+      article.cropPhotoState.pending.push({
+        ...prepared,
+        previewUrl: URL.createObjectURL(prepared.photo)
+      });
+    }
+    renderCropPhotoEditor(article);
+    if (files.length > selected.length) {
+      notice(`최대 6장까지만 추가했습니다.`, "success");
+    } else {
+      notice(`${selected.length}장의 작물 사진을 준비했습니다.`, "success");
+    }
+  } catch (error) {
+    renderCropPhotoEditor(article);
+    notice(`사진 준비 실패: ${error.message}`, "error");
+  } finally {
+    setBusy(false);
+    renderCropPhotoEditor(article);
+  }
 }
 
 function usedCropIds() {
@@ -317,12 +417,30 @@ function renderDetail(entry) {
       });
       article.append(tags);
     }
+    if (section.photos?.length) {
+      const gallery = document.createElement("div");
+      gallery.className = "detail-crop-photos";
+      section.photos.forEach((photo) => {
+        const link = document.createElement("a");
+        link.href = photoUrl(photo.url, photo.updated_at);
+        link.target = "_blank";
+        link.rel = "noopener";
+        const image = document.createElement("img");
+        image.loading = "lazy";
+        image.alt = `${section.crop_name} 기록 사진`;
+        image.src = photoUrl(photo.thumbnail_url, photo.updated_at);
+        link.append(image);
+        gallery.append(link);
+      });
+      article.append(gallery);
+    }
     crops.append(article);
   });
   element("detailEmptyCrops").hidden = entry.sections.length > 0;
 }
 
 function resetEditor(entry = null) {
+  cleanupCropEditors();
   state.current = entry;
   element("editorTitle").textContent = entry ? formatDate(entry.journal_date) : "새 재배일지";
   element("journalDate").value = entry?.journal_date || todayJst();
@@ -337,6 +455,10 @@ function resetEditor(entry = null) {
   updateEmptySections();
   element("deleteEntry").hidden = !entry;
   resetPhotoEditor(entry);
+}
+
+function cleanupCropEditors() {
+  document.querySelectorAll(".crop-section").forEach(revokeCropPreviewUrls);
 }
 
 function revokePreviewUrl() {
@@ -363,7 +485,7 @@ function resetPhotoEditor(entry) {
   element("galleryPhotoInput").value = "";
 }
 
-function loadImage(file) {
+function loadImageElement(file) {
   return new Promise((resolve, reject) => {
     const source = URL.createObjectURL(file);
     const image = new Image();
@@ -379,20 +501,29 @@ function loadImage(file) {
   });
 }
 
-function canvasBlob(canvas, quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error("사진 압축에 실패했습니다.")),
-      "image/jpeg",
-      quality
-    );
-  });
+async function loadImage(file) {
+  if ("createImageBitmap" in window) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      // Some Safari/HEIC combinations only decode through an HTMLImageElement.
+    }
+  }
+  return loadImageElement(file);
 }
 
-async function resizedJpeg(image, maximumDimension, quality) {
-  const scale = Math.min(1, maximumDimension / Math.max(image.naturalWidth, image.naturalHeight));
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+function imageDimensions(image) {
+  return {
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height
+  };
+}
+
+function resizedImageData(image, maximumDimension) {
+  const source = imageDimensions(image);
+  const scale = Math.min(1, maximumDimension / Math.max(source.width, source.height));
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -400,22 +531,43 @@ async function resizedJpeg(image, maximumDimension, quality) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   context.drawImage(image, 0, 0, width, height);
-  return { blob: await canvasBlob(canvas, quality), width, height };
+  const data = context.getImageData(0, 0, width, height);
+  canvas.width = 1;
+  canvas.height = 1;
+  return { data, width, height };
+}
+
+async function resizedWebp(image, maximumDimension, quality) {
+  const resized = resizedImageData(image, maximumDimension);
+  return {
+    blob: await encodeWebp(resized.data, quality),
+    width: resized.width,
+    height: resized.height
+  };
 }
 
 async function preparePhoto(file) {
   if (!file?.type?.startsWith("image/")) throw new Error("이미지 파일을 선택해 주세요.");
   if (file.size > 30_000_000) throw new Error("원본 사진은 30MB 이하만 선택할 수 있습니다.");
   const image = await loadImage(file);
-  const full = await resizedJpeg(image, 1600, 0.82);
-  const thumbnail = await resizedJpeg(image, 420, 0.74);
-  if (full.blob.size > 2_000_000) throw new Error("압축된 사진이 2MB를 초과했습니다.");
-  return {
-    photo: full.blob,
-    thumbnail: thumbnail.blob,
-    width: full.width,
-    height: full.height
-  };
+  try {
+    let full = await resizedWebp(image, 1920, 82);
+    if (full.blob.size > 1_000_000) full = await resizedWebp(image, 1920, 72);
+    if (full.blob.size > 1_000_000) full = await resizedWebp(image, 1600, 68);
+    let thumbnail = await resizedWebp(image, 420, 70);
+    if (thumbnail.blob.size > 100_000) thumbnail = await resizedWebp(image, 420, 58);
+    if (full.blob.size > 1_000_000 || thumbnail.blob.size > 100_000) {
+      throw new Error("WebP 변환 후에도 사진 용량이 너무 큽니다.");
+    }
+    return {
+      photo: full.blob,
+      thumbnail: thumbnail.blob,
+      width: full.width,
+      height: full.height
+    };
+  } finally {
+    image.close?.();
+  }
 }
 
 async function choosePhoto(file) {
@@ -443,8 +595,8 @@ async function choosePhoto(file) {
 async function savePhotoChange(entry) {
   if (state.pendingPhoto) {
     const form = new FormData();
-    form.set("photo", state.pendingPhoto.photo, "journal-photo.jpg");
-    form.set("thumbnail", state.pendingPhoto.thumbnail, "journal-thumbnail.jpg");
+    form.set("photo", state.pendingPhoto.photo, "journal-photo.webp");
+    form.set("thumbnail", state.pendingPhoto.thumbnail, "journal-thumbnail.webp");
     form.set("revision", String(entry.revision));
     form.set("width", String(state.pendingPhoto.width));
     form.set("height", String(state.pendingPhoto.height));
@@ -460,6 +612,40 @@ async function savePhotoChange(entry) {
     })).entry;
   }
   return entry;
+}
+
+async function saveCropPhotoChanges(entry) {
+  const articles = [...document.querySelectorAll(".crop-section")];
+  let updatedEntry = entry;
+  for (const article of articles) {
+    const cropId = article.querySelector(".section-crop").value;
+    const photoState = article.cropPhotoState;
+    for (const photo of photoState.existing.filter((item) => photoState.removed.has(item.id))) {
+      notice("삭제한 작물 사진을 반영하는 중입니다.");
+      updatedEntry = (await photoApi(
+        `/admin/api/journal/${updatedEntry.id}/crops/${cropId}/photos/${photo.id}`,
+        {
+          method: "DELETE",
+          headers: { "X-Journal-Revision": String(updatedEntry.revision) }
+        }
+      )).entry;
+    }
+    for (let index = 0; index < photoState.pending.length; index += 1) {
+      notice(`작물 사진을 업로드하는 중입니다. (${index + 1}/${photoState.pending.length})`);
+      const pending = photoState.pending[index];
+      const form = new FormData();
+      form.set("photo", pending.photo, "crop-photo.webp");
+      form.set("thumbnail", pending.thumbnail, "crop-thumbnail.webp");
+      form.set("revision", String(updatedEntry.revision));
+      form.set("width", String(pending.width));
+      form.set("height", String(pending.height));
+      updatedEntry = (await photoApi(
+        `/admin/api/journal/${updatedEntry.id}/crops/${cropId}/photos`,
+        { method: "POST", body: form }
+      )).entry;
+    }
+  }
+  return updatedEntry;
 }
 
 function showEditor() {
@@ -478,6 +664,7 @@ function showDetail() {
 
 function showList() {
   revokePreviewUrl();
+  cleanupCropEditors();
   element("editorView").hidden = true;
   element("detailView").hidden = true;
   element("listView").hidden = false;
@@ -537,8 +724,10 @@ element("journalForm").addEventListener("submit", async (event) => {
     let entry = result.entry;
     try {
       entry = await savePhotoChange(entry);
+      entry = await saveCropPhotoChanges(entry);
     } catch (photoError) {
       revokePreviewUrl();
+      cleanupCropEditors();
       state.pendingPhoto = null;
       state.removePhoto = false;
       renderDetail(entry);
@@ -547,6 +736,7 @@ element("journalForm").addEventListener("submit", async (event) => {
       return;
     }
     revokePreviewUrl();
+    cleanupCropEditors();
     state.pendingPhoto = null;
     state.removePhoto = false;
     renderDetail(entry);

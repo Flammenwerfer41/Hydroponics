@@ -1,12 +1,12 @@
 import { JournalRequestError } from "./contract.js";
 
 export const PHOTO_LIMITS = Object.freeze({
-  fullBytes: 2_000_000,
-  thumbnailBytes: 300_000,
-  maximumDimension: 2400
+  fullBytes: 1_000_000,
+  thumbnailBytes: 100_000,
+  maximumDimension: 1920
 });
 
-const MIME_TYPES = new Set(["image/jpeg", "image/webp"]);
+const MIME_TYPES = new Set(["image/webp"]);
 
 function integer(value, name, minimum, maximum) {
   if (!/^\d+$/.test(String(value ?? ""))) {
@@ -27,7 +27,7 @@ function image(value, name, maximumBytes) {
     throw new JournalRequestError("invalid_photo", `${name} is required`);
   }
   if (!MIME_TYPES.has(value.type)) {
-    throw new JournalRequestError("invalid_photo", `${name} must be JPEG or WebP`);
+    throw new JournalRequestError("invalid_photo", `${name} must be WebP`);
   }
   if (value.size < 1 || value.size > maximumBytes) {
     throw new JournalRequestError(
@@ -63,5 +63,8 @@ export function parsePhotoUpload(formData) {
 }
 
 export function photoExtension(mimeType) {
-  return mimeType === "image/webp" ? "webp" : "jpg";
+  if (mimeType !== "image/webp") {
+    throw new JournalRequestError("invalid_photo", "Photo must be WebP");
+  }
+  return "webp";
 }

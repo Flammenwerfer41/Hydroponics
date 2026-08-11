@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests">
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1714">
@@ -160,8 +160,17 @@
       <label>소제목 <small>선택</small><input class="section-title" maxlength="160" placeholder="예: 첫 수확"></label>
       <label>작물 기록<textarea class="section-body" rows="6" maxlength="20000" required placeholder="성장 상태, 수확, 관리 내용 등을 자유롭게 기록하세요."></textarea></label>
       <fieldset class="tag-field"><legend>활동 태그</legend><div class="tag-options"></div></fieldset>
+      <div class="crop-photo-editor">
+        <div class="crop-photo-heading">
+          <div><strong>작물 사진</strong><small>최대 6장 · 일지 공개 설정을 따름</small></div>
+          <button class="select-crop-photos" type="button">+ 사진 추가</button>
+        </div>
+        <input class="crop-photo-input" type="file" accept="image/*" multiple hidden>
+        <div class="crop-photo-grid"></div>
+        <p class="crop-photo-empty empty-copy">등록된 작물 사진이 없습니다.</p>
+      </div>
     </article>
   </template>
-  <script src="journal.js?v=4" defer></script>
+  <script type="module" src="journal.js?v=5"></script>
 </body>
 </html>

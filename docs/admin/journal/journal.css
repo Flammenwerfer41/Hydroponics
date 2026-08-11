@@ -68,6 +68,17 @@ textarea { resize:vertical; line-height:1.65; }
 .tag-check input { position:absolute; opacity:0; }
 .tag-check span { display:block; border:1px solid var(--line); border-radius:999px; padding:.42rem .68rem; color:var(--muted); font-size:.76rem; cursor:pointer; }
 .tag-check input:checked+span { color:white; border-color:var(--green-dark); background:var(--green-dark); }
+.crop-photo-editor { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
+.crop-photo-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.crop-photo-heading strong { display:block; font-size:.84rem; }
+.crop-photo-heading small { display:block; margin-top:3px; color:var(--muted); font-size:.7rem; }
+.crop-photo-grid,.detail-crop-photos { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:12px; }
+.crop-photo-card { position:relative; min-width:0; aspect-ratio:4/3; overflow:hidden; border:1px solid var(--line); border-radius:13px; background:rgba(110,130,120,.08); }
+.crop-photo-card img { display:block; width:100%; height:100%; object-fit:cover; }
+.crop-photo-card.pending::after { content:"저장 대기"; position:absolute; left:7px; bottom:7px; padding:.22rem .42rem; border-radius:999px; color:white; background:rgba(11,23,20,.72); font-size:.62rem; font-weight:750; }
+.crop-photo-remove { position:absolute; top:6px; right:6px; width:30px; height:30px; padding:0; border:0; border-radius:50%; color:white; background:rgba(130,35,35,.86); line-height:30px; }
+.detail-crop-photos a { display:block; aspect-ratio:4/3; overflow:hidden; border-radius:13px; background:rgba(110,130,120,.08); }
+.detail-crop-photos img { display:block; width:100%; height:100%; object-fit:cover; }
 .editor-actions { display:flex; gap:10px; justify-content:flex-end; }
 .editor-actions button { min-width:140px; }
 @media (max-width:900px) {
@@ -90,4 +101,5 @@ textarea { resize:vertical; line-height:1.65; }
   .card-summary { margin:9px 0; }
   .photo-controls { flex-direction:column; }
   .photo-controls button { width:100%; }
+  .crop-photo-grid,.detail-crop-photos { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
