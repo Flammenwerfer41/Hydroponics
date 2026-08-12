@@ -27,11 +27,6 @@ struct __attribute__((packed)) SensorRecord {
 };
 static_assert(sizeof(SensorRecord) == 40, "SensorRecord must remain 40 bytes");
 
-struct CloudflareJob {
-  SensorRecord record;
-  uint32_t slot;
-};
-
 struct StoredRecordRef {
   SensorRecord record;
   uint32_t slot;
