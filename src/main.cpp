@@ -13,15 +13,12 @@
 
 #include <Arduino.h>
 #include "secrets.h"
-#include <Wire.h>
+#include "sensor_manager.h"
+#include "telemetry_record.h"
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <FS.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
@@ -84,11 +81,6 @@ HMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==
 // ================= USER SETTINGS =================
 const char* TZ_INFO = "JST-9";
 
-constexpr int I2C_SDA_PIN = 18;
-constexpr int I2C_SCL_PIN = 19;
-constexpr int WATER_TEMPERATURE_PIN = 21;
-constexpr uint8_t DS18B20_RESOLUTION_BITS = 11;
-constexpr uint32_t DS18B20_CONVERSION_MS = 375UL;
 constexpr uint32_t SAMPLE_INTERVAL_MS = 120000UL;
 constexpr uint8_t MAX_CONSECUTIVE_SENSOR_FAILURES = 5;
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000UL;
@@ -125,57 +117,17 @@ constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (4UL << 8);
 constexpr size_t FILESYSTEM_SAFETY_MARGIN = 128UL * 1024UL;
 constexpr size_t RING_INITIALIZE_CHUNK_BYTES = 512UL;
 
-enum RecordFlags : uint8_t {
-  FLAG_BME280_VALID   = 1 << 0,
-  FLAG_WATER_VALID    = 1 << 1,
-  // Bit 4 is retained in the on-flash record layout for v8 compatibility.
-  FLAG_LEGACY_DESTINATION_OK = 1 << 4,
-  FLAG_CLOUDFLARE_OK  = 1 << 5
-};
-
-struct __attribute__((packed)) SensorRecord {
-  uint32_t timestamp;
-  uint64_t bootId;
-  uint32_t sequence;
-  uint32_t firmwareVersion;
-  float temperature;
-  float humidity;
-  float pressure;
-  float waterTemperature;
-  int8_t rssi;
-  uint8_t flags;
-  uint8_t resetReason;
-  uint8_t reserved;
-};
-static_assert(sizeof(SensorRecord) == 40, "SensorRecord must remain 40 bytes");
-
-struct CloudflareJob {
-  SensorRecord record;
-  uint32_t slot;
-};
-
-struct StoredRecordRef {
-  SensorRecord record;
-  uint32_t slot;
-};
-
 constexpr size_t REQUIRED_LOG_BYTES = static_cast<size_t>(MAX_RECORDS) * sizeof(SensorRecord);
 constexpr size_t REQUIRED_ACK_BYTES = static_cast<size_t>(MAX_RECORDS);
 constexpr uint8_t DESTINATION_ACK_MASK = FLAG_CLOUDFLARE_OK;
 
 int32_t newestSlot = -1;
 
-Adafruit_BME280 bme;
-OneWire waterTemperatureBus(WATER_TEMPERATURE_PIN);
-DallasTemperature waterTemperatureSensors(&waterTemperatureBus);
-DeviceAddress waterTemperatureAddress{};
 QueueHandle_t cloudflareQueue = nullptr;
 SemaphoreHandle_t fsMutex = nullptr;
 SemaphoreHandle_t stateMutex = nullptr;
 TaskHandle_t cloudflareTaskHandle = nullptr;
 
-uint8_t bmeAddress = 0;
-bool waterTemperatureSensorReady = false;
 bool filesystemMounted = false;
 bool filesystemReady = false;
 bool timeReady = false;
@@ -287,20 +239,6 @@ bool sameRecordIdentity(const SensorRecord& left, const SensorRecord& right) {
          left.sequence == right.sequence;
 }
 
-bool validBME280Data(float temperature, float humidity, float pressure) {
-  return isfinite(temperature) && isfinite(humidity) && isfinite(pressure) &&
-         temperature >= -40.0f && temperature <= 85.0f &&
-         humidity >= 0.0f && humidity <= 100.0f &&
-         pressure >= 300.0f && pressure <= 1100.0f;
-}
-
-bool validWaterTemperature(float temperature) {
-  return isfinite(temperature) &&
-         temperature != DEVICE_DISCONNECTED_C &&
-         temperature != 85.0f &&
-         temperature >= -55.0f && temperature <= 125.0f;
-}
-
 bool validStoredRecord(const SensorRecord& record) {
   bool bme280Valid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
@@ -308,9 +246,9 @@ bool validStoredRecord(const SensorRecord& record) {
          record.bootId != 0 &&
          record.firmwareVersion != 0 &&
          (bme280Valid || waterValid) &&
-         (!bme280Valid || validBME280Data(
+         (!bme280Valid || validAirMeasurement(
            record.temperature, record.humidity, record.pressure)) &&
-         (!waterValid || validWaterTemperature(record.waterTemperature));
+         (!waterValid || validWaterMeasurement(record.waterTemperature));
 }
 
 void serviceNetwork() {
@@ -425,64 +363,6 @@ void setupOTA() {
   ArduinoOTA.begin();
   otaReady = true;
   Serial.printf("OTA ready: %s.local\n", OTA_HOSTNAME);
-}
-
-// ================= BME280 =================
-bool initializeBME280() {
-  if (bme.begin(0x76)) bmeAddress = 0x76;
-  else if (bme.begin(0x77)) bmeAddress = 0x77;
-  else {
-    bmeAddress = 0;
-    Serial.println("BME280 not found.");
-    return false;
-  }
-  bme.setSampling(Adafruit_BME280::MODE_FORCED,
-                  Adafruit_BME280::SAMPLING_X1,
-                  Adafruit_BME280::SAMPLING_X1,
-                  Adafruit_BME280::SAMPLING_X1,
-                  Adafruit_BME280::FILTER_X4,
-                  Adafruit_BME280::STANDBY_MS_0_5);
-  Serial.printf("BME280 ready at 0x%02X\n", bmeAddress);
-  return true;
-}
-
-bool readBME280(float& temperature, float& humidity, float& pressure) {
-  if (bmeAddress == 0 && !initializeBME280()) return false;
-  if (!bme.takeForcedMeasurement()) return false;
-  temperature = bme.readTemperature();
-  humidity = bme.readHumidity();
-  pressure = bme.readPressure() / 100.0f;
-  return validBME280Data(temperature, humidity, pressure);
-}
-
-// ================= DS18B20 WATER TEMPERATURE =================
-bool initializeDS18B20() {
-  waterTemperatureSensors.begin();
-  if (!waterTemperatureSensors.getAddress(waterTemperatureAddress, 0)) {
-    waterTemperatureSensorReady = false;
-    Serial.printf("DS18B20 not found on GPIO %d.\n", WATER_TEMPERATURE_PIN);
-    return false;
-  }
-  waterTemperatureSensors.setResolution(
-    waterTemperatureAddress, DS18B20_RESOLUTION_BITS);
-  waterTemperatureSensors.setWaitForConversion(false);
-  waterTemperatureSensorReady = true;
-  Serial.printf("DS18B20 ready on GPIO %d at %u-bit resolution.\n",
-                WATER_TEMPERATURE_PIN, DS18B20_RESOLUTION_BITS);
-  return true;
-}
-
-bool readWaterTemperature(float& temperature) {
-  temperature = NAN;
-  if (!waterTemperatureSensorReady && !initializeDS18B20()) return false;
-  waterTemperatureSensors.requestTemperaturesByAddress(waterTemperatureAddress);
-  servicedDelay(DS18B20_CONVERSION_MS);
-  temperature = waterTemperatureSensors.getTempC(waterTemperatureAddress);
-  if (validWaterTemperature(temperature)) return true;
-  waterTemperatureSensorReady = false;
-  temperature = NAN;
-  Serial.println("Invalid DS18B20 water temperature; water field is unavailable.");
-  return false;
 }
 
 // ================= LITTLEFS LOW-LEVEL I/O =================
@@ -1161,13 +1041,13 @@ void performMeasurementCycle() {
   float humidity = NAN;
   float pressure = NAN;
   float waterTemperature = NAN;
-  bool bme280Valid = readBME280(temperature, humidity, pressure);
-  bool waterTemperatureValid = readWaterTemperature(waterTemperature);
+  bool bme280Valid = sensors::readAir(temperature, humidity, pressure);
+  bool waterTemperatureValid = sensors::readWater(waterTemperature);
 
   if (bme280Valid) {
     consecutiveBme280Failures = 0;
   } else {
-    bmeAddress = 0;
+    sensors::invalidateAir();
     if (consecutiveBme280Failures < UINT8_MAX) consecutiveBme280Failures++;
     Serial.printf("BME280 measurement failed (%u/%u).\n",
                   consecutiveBme280Failures, MAX_CONSECUTIVE_SENSOR_FAILURES);
@@ -1253,9 +1133,7 @@ void setup() {
     while (true) delay(1000);
   }
 
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  initializeBME280();
-  initializeDS18B20();
+  sensors::begin(servicedDelay);
   connectWiFi();
   if (WiFi.status() == WL_CONNECTED) {
     requestTimeSync();
