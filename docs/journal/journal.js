@@ -1,35 +1,19 @@
+import {
+  createOption as option,
+  createValueBadge as valueBadge,
+  formatJournalDate as formatDate,
+  formatJournalTimestamp as formatUpdated,
+  liquidLabel,
+  refreshJournalDays,
+  todayJst
+} from "./common.js?v=1";
+
 const state = { catalog: null };
 const element = (id) => document.getElementById(id);
 const DATA_API_BASE = String(globalThis.HYDROPONICS_CONFIG?.dataApiBaseUrl || "").replace(/\/$/, "");
 
 function apiUrl(path) {
   return `${DATA_API_BASE}${path}`;
-}
-
-function todayJst() {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function option(value, label) {
-  const item = document.createElement("option");
-  item.value = value;
-  item.textContent = label;
-  return item;
-}
-
-function formatDate(value) {
-  const [year, month, day] = value.split("-").map(Number);
-  return `${year}년 ${month}월 ${day}일`;
-}
-
-function formatUpdated(value) {
-  return value ? new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Tokyo", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit"
-  }).format(new Date(value)) : "";
-}
-
-function liquidLabel(value) {
-  return { water: "물", prepared_solution: "조제 양액", concentrate: "농축 양액", other: "기타" }[value] || "양액";
 }
 
 function notice(message, kind = "") {
@@ -45,13 +29,11 @@ async function api(path) {
 }
 
 function refreshDays() {
-  const selected = element("filterDay").value;
-  const year = Number(element("filterYear").value);
-  const month = Number(element("filterMonth").value);
-  const count = new Date(year, month, 0).getDate();
-  element("filterDay").replaceChildren(option("", "전체"));
-  for (let day = 1; day <= count; day += 1) element("filterDay").append(option(day, `${day}일`));
-  if (Number(selected) <= count) element("filterDay").value = selected;
+  refreshJournalDays(
+    element("filterYear"),
+    element("filterMonth"),
+    element("filterDay")
+  );
 }
 
 function initializeFilters() {
@@ -68,19 +50,13 @@ function initializeFilters() {
   refreshDays();
 }
 
-function valueBadge(text) {
-  const item = document.createElement("span");
-  item.textContent = text;
-  return item;
-}
-
 function addMeasurements(container, measurements) {
   const ph = measurements.solution_ph;
   const ec = measurements.electrical_conductivity;
   const topup = measurements.solution_added_volume;
   if (ph) container.append(valueBadge(`pH ${ph.value}`));
   if (ec) container.append(valueBadge(`EC ${ec.value} ${ec.unit}`));
-  if (topup) container.append(valueBadge(`${liquidLabel(topup.qualifier)} ${topup.value} ${topup.unit} 보충`));
+  if (topup) container.append(valueBadge(`${liquidLabel(topup.qualifier, "양액")} ${topup.value} ${topup.unit} 보충`));
 }
 
 function renderList(entries) {
@@ -117,7 +93,7 @@ function renderList(entries) {
     values.className = "values compact";
     if (entry.solution_ph !== null) values.append(valueBadge(`pH ${entry.solution_ph}`));
     if (entry.electrical_conductivity !== null) values.append(valueBadge(`EC ${entry.electrical_conductivity} mS/cm`));
-    if (entry.solution_added_volume !== null) values.append(valueBadge(`${liquidLabel(entry.solution_added_liquid_type)} ${entry.solution_added_volume} L 보충`));
+    if (entry.solution_added_volume !== null) values.append(valueBadge(`${liquidLabel(entry.solution_added_liquid_type, "양액")} ${entry.solution_added_volume} L 보충`));
     content.append(date, crops, note, values);
     card.append(content);
     container.append(card);

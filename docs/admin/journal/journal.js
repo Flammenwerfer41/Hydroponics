@@ -1,4 +1,13 @@
 import { encodeWebp } from "./image-codec-client.js";
+import {
+  createOption as option,
+  createValueBadge,
+  formatJournalDate as formatDate,
+  formatJournalTimestamp as formatUpdatedAt,
+  liquidLabel,
+  refreshJournalDays,
+  todayJst
+} from "../../journal/common.js?v=1";
 
 const state = {
   catalog: null,
@@ -9,10 +18,6 @@ const state = {
   previewUrl: null
 };
 const element = (id) => document.getElementById(id);
-
-function todayJst() {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 
 function notice(message, kind = "") {
   element("notice").textContent = message;
@@ -50,13 +55,6 @@ function photoUrl(url, updatedAt) {
   return `${url}${separator}v=${encodeURIComponent(updatedAt || "1")}`;
 }
 
-function option(value, label) {
-  const item = document.createElement("option");
-  item.value = value;
-  item.textContent = label;
-  return item;
-}
-
 function initializeFilters() {
   const [currentYear, currentMonth] = todayJst().split("-").map(Number);
   const years = new Set([currentYear, ...(state.catalog.periods || []).map((item) => Number(item.year))]);
@@ -70,40 +68,15 @@ function initializeFilters() {
 }
 
 function refreshDayOptions() {
-  const selected = element("filterDay").value;
-  const year = Number(element("filterYear").value);
-  const month = Number(element("filterMonth").value);
-  const count = new Date(year, month, 0).getDate();
-  element("filterDay").replaceChildren(option("", "전체"));
-  for (let day = 1; day <= count; day += 1) element("filterDay").append(option(day, `${day}일`));
-  if (Number(selected) <= count) element("filterDay").value = selected;
-}
-
-function liquidLabel(value) {
-  return { water: "물", prepared_solution: "조제 양액", concentrate: "농축 양액", other: "기타" }[value] || "";
-}
-
-function formatDate(value) {
-  const [year, month, day] = value.split("-").map(Number);
-  return `${year}년 ${month}월 ${day}일`;
-}
-
-function formatUpdatedAt(value) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Tokyo",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
+  refreshJournalDays(
+    element("filterYear"),
+    element("filterMonth"),
+    element("filterDay")
+  );
 }
 
 function valueBadge(text) {
-  const value = document.createElement("span");
-  value.className = "card-value";
-  value.textContent = text;
-  return value;
+  return createValueBadge(text, "card-value");
 }
 
 function summaryText(entry) {
