@@ -7,7 +7,9 @@ import worker, {
   calculateApparentTemperature,
   mapUrlFor,
   observationCondition,
-  readJmaField
+  readJmaField,
+  shouldCollectJmaForecast,
+  shouldCollectJmaObservation
 } from "../src/index.js";
 
 const SAMPLE_FORECAST = {
@@ -225,4 +227,13 @@ test("allows mirror sites to preflight the public journal API", async () => {
   assert.equal(response.status, 204);
   assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
   assert.match(response.headers.get("Access-Control-Allow-Methods"), /GET/);
+});
+
+test("checks JMA observations every five minutes and forecasts hourly", () => {
+  assert.equal(shouldCollectJmaObservation(new Date("2026-08-12T03:02:00Z")), true);
+  assert.equal(shouldCollectJmaObservation(new Date("2026-08-12T03:07:00Z")), true);
+  assert.equal(shouldCollectJmaObservation(new Date("2026-08-12T03:08:00Z")), false);
+  assert.equal(shouldCollectJmaForecast(new Date("2026-08-12T03:07:00Z")), true);
+  assert.equal(shouldCollectJmaForecast(new Date("2026-08-12T04:07:00Z")), true);
+  assert.equal(shouldCollectJmaForecast(new Date("2026-08-12T04:12:00Z")), false);
 });

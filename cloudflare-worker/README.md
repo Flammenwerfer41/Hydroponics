@@ -30,6 +30,8 @@ SwitchBot control, the 07:00/21:00 JST light schedule and Access configuration a
 documented in [`CONTROL.md`](CONTROL.md).
 The date-based cultivation journal, crop sections and manual pH/EC/top-up records are
 documented in [`JOURNAL.md`](JOURNAL.md).
+Long-term JMA observations and the latest-only forecast cache are documented in
+[`WEATHER_ARCHIVE.md`](WEATHER_ARCHIVE.md).
 
 ## Cloudflare dashboard setup
 

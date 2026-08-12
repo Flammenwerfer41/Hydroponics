@@ -10,6 +10,14 @@ import { handleJournalAdmin } from "./journal/handler.js";
 import { handlePublicJournal } from "./journal/public-handler.js";
 import { pollAndReconcile } from "./control/service.js";
 import { processJournalCleanup } from "./journal/cleanup.js";
+import {
+  latestObservationTime,
+  latestStoredWeather,
+  observationTimesToCollect,
+  refreshStoredObservation,
+  saveLatestForecast,
+  saveObservations
+} from "./weather/store.js";
 
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
 const JMA_FORECAST_URL =
@@ -331,17 +339,27 @@ async function fetchJson(url) {
   return response.json();
 }
 
-async function fetchLatestJmaMap() {
+async function latestJmaTime() {
   const latest = (await fetchText(`${JMA_BASE_URL}/latest_time.txt`)).trim();
   const observedAt = new Date(latest);
   if (Number.isNaN(observedAt.getTime())) throw new Error("JMA latest_time was invalid");
+  return observedAt;
+}
+
+async function fetchJmaMapAt(observedAt) {
+  const map = await fetchJson(mapUrlFor(observedAt));
+  if (!map?.[ENVIRONMENT_STATION.id]) throw new Error("Tokyo AMeDAS observation is missing");
+  return map;
+}
+
+async function fetchLatestJmaMap() {
+  const observedAt = await latestJmaTime();
 
   for (let offset = 0; offset < 3; offset += 1) {
     const candidate = new Date(observedAt.getTime() - offset * 10 * 60_000);
     const candidateIso = candidate.toISOString();
     try {
-      const map = await fetchJson(mapUrlFor(candidate));
-      if (map?.[ENVIRONMENT_STATION.id]) return { map, observedAt: candidateIso };
+      return { map: await fetchJmaMapAt(candidate), observedAt: candidateIso };
     } catch (error) {
       if (offset === 2) throw error;
     }
@@ -349,7 +367,39 @@ async function fetchLatestJmaMap() {
   throw new Error("No usable JMA observation was found");
 }
 
-async function currentWeather(request, context) {
+export function shouldCollectJmaObservation(now) {
+  return now.getUTCMinutes() % 5 === 2;
+}
+
+export function shouldCollectJmaForecast(now) {
+  return now.getUTCMinutes() === 7;
+}
+
+async function archiveJmaWeather(environment, now, includeForecast = false) {
+  const latest = await latestJmaTime();
+  const previous = await latestObservationTime(environment.HYDROPONICS_DB);
+  const times = observationTimesToCollect(previous, latest.toISOString());
+  const observations = [];
+  for (const observedAt of times) {
+    try {
+      const map = await fetchJmaMapAt(new Date(observedAt));
+      observations.push(buildWeatherPayload(map, observedAt, now));
+    } catch (error) {
+      console.warn("JMA historical observation fetch skipped", { observedAt, error: error?.message });
+    }
+  }
+  await saveObservations(environment.HYDROPONICS_DB, observations, now);
+
+  let forecastSaved = false;
+  if (includeForecast) {
+    const forecast = await fetchJson(JMA_FORECAST_URL).then(buildForecastPayload);
+    await saveLatestForecast(environment.HYDROPONICS_DB, forecast, now);
+    forecastSaved = true;
+  }
+  return { observations: observations.length, forecast: forecastSaved };
+}
+
+async function currentWeather(request, environment, context) {
   const requestUrl = new URL(request.url);
   const cacheKey = new Request(`${requestUrl.origin}/v1/current`, { method: "GET" });
   const cache = caches.default;
@@ -358,6 +408,25 @@ async function currentWeather(request, context) {
     const response = new Response(cached.body, cached);
     response.headers.set("X-Weather-Cache", "HIT");
     return response;
+  }
+
+  if (environment.HYDROPONICS_DB) {
+    try {
+      const stored = await latestStoredWeather(environment.HYDROPONICS_DB);
+      const payload = refreshStoredObservation(stored.observation);
+      if (payload) {
+        payload.forecast = stored.forecast;
+        payload.quality.forecast_available = stored.forecast !== null;
+        const response = jsonResponse(payload, 200, {
+          "Cache-Control": `public, max-age=${CACHE_SECONDS}`,
+          "X-Weather-Cache": "D1"
+        });
+        context.waitUntil(cache.put(cacheKey, response.clone()));
+        return response;
+      }
+    } catch (error) {
+      console.warn("Stored JMA weather lookup failed; falling back to JMA", error);
+    }
   }
 
   const observationPromise = fetchLatestJmaMap();
@@ -372,6 +441,12 @@ async function currentWeather(request, context) {
     forecastPromise
   ]);
   const payload = buildWeatherPayload(map, observedAt);
+  if (environment.HYDROPONICS_DB) {
+    context.waitUntil(Promise.all([
+      saveObservations(environment.HYDROPONICS_DB, [payload]),
+      forecast ? saveLatestForecast(environment.HYDROPONICS_DB, forecast) : Promise.resolve()
+    ]).catch((error) => console.error("Initial JMA cache persistence failed", error)));
+  }
   payload.forecast = forecast;
   payload.quality.forecast_available = forecast !== null;
   const response = jsonResponse(payload, 200, {
@@ -446,7 +521,7 @@ async function routeRequest(request, environment, context) {
     }
 
     try {
-      return await currentWeather(request, context);
+      return await currentWeather(request, environment, context);
     } catch (error) {
       console.error("JMA weather fetch failed", error);
       return jsonResponse({
@@ -471,6 +546,15 @@ export default {
         .catch((error) => console.error("Scheduled SwitchBot reconciliation failed", error))
     );
     const scheduledAt = new Date(controller.scheduledTime);
+    if (shouldCollectJmaObservation(scheduledAt)) {
+      context.waitUntil(
+        archiveJmaWeather(environment, scheduledAt, shouldCollectJmaForecast(scheduledAt))
+          .then((result) => {
+            if (result.observations || result.forecast) console.log("Scheduled JMA archive completed", result);
+          })
+          .catch((error) => console.error("Scheduled JMA archive failed", error))
+      );
+    }
     if (scheduledAt.getUTCMinutes() === 17 && environment.JOURNAL_PHOTOS) {
       context.waitUntil(
         processJournalCleanup(environment.HYDROPONICS_DB, environment.JOURNAL_PHOTOS, scheduledAt)

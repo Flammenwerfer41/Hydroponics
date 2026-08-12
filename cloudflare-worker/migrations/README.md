@@ -23,6 +23,8 @@ It also seeds the current basil and perilla crop catalog.
 journal day. Binary image objects remain in the private R2 bucket.
 `0008_r2_cleanup_queue.sql` adds an eventual-cleanup queue so temporary R2 deletion
 failures are retried without leaving silent orphan objects.
+`0009_jma_weather_archive.sql` adds the compound lookup index used by long-term JMA
+observation storage and the single latest-forecast cache in `weather_records`.
 
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
