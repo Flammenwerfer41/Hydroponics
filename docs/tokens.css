@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light dark;
+  --bg: #eef3ef;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-solid: #ffffff;
+  --surface-soft: #f5f8f5;
+  --text: #10221d;
+  --muted: #60726b;
+  --faint: #8a9993;
+  --border: rgba(22, 59, 48, 0.12);
+  --grid: rgba(28, 71, 58, 0.10);
+  --green: #17845d;
+  --green-dark: #0d6042;
+  --green-soft: #dff4e9;
+  --temperature: #ef765b;
+  --temperature-soft: #fff0eb;
+  --humidity: #3f8bd9;
+  --humidity-soft: #e9f3ff;
+  --pressure: #8a6fd1;
+  --pressure-soft: #f1edff;
+  --water: #199ca4;
+  --water-soft: #e3f7f7;
+  --water-bright: #72d8dc;
+  --water-deep: #279aa7;
+  --scene-sky-top: #edf8f2;
+  --scene-sky-bottom: #dfeee7;
+  --scene-ground: #b7d2bd;
+  --scene-leaf: #4aa571;
+  --scene-leaf-dark: #2f8157;
+  --scene-trunk: #8a6548;
+  --scene-pot: rgba(230, 240, 236, 0.78);
+  --scene-wall: rgba(48, 94, 78, 0.26);
+  --light: #e0a21c;
+  --light-soft: #fff4cf;
+  --danger: #c64545;
+  --shadow: 0 18px 50px rgba(27, 58, 47, 0.09);
+  --radius-lg: 24px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #09110f;
+    --surface: rgba(17, 31, 27, 0.90);
+    --surface-solid: #111f1b;
+    --surface-soft: #152620;
+    --text: #edf7f2;
+    --muted: #9bb0a8;
+    --faint: #71877f;
+    --border: rgba(202, 231, 219, 0.11);
+    --grid: rgba(205, 231, 221, 0.10);
+    --green: #56c797;
+    --green-dark: #8ee0bb;
+    --green-soft: #17382c;
+    --temperature: #ff927a;
+    --temperature-soft: #3b211c;
+    --humidity: #78b9f3;
+    --humidity-soft: #172e41;
+    --pressure: #b59bea;
+    --pressure-soft: #2b2342;
+    --water: #64d2d5;
+    --water-soft: #163638;
+    --water-bright: #4db9c0;
+    --water-deep: #246f7d;
+    --scene-sky-top: #132720;
+    --scene-sky-bottom: #10201b;
+    --scene-ground: #294a37;
+    --scene-leaf: #4eae76;
+    --scene-leaf-dark: #2c7650;
+    --scene-trunk: #a57d5c;
+    --scene-pot: rgba(43, 68, 59, 0.82);
+    --scene-wall: rgba(183, 220, 207, 0.24);
+    --light: #f0bd4b;
+    --light-soft: #3b3119;
+    --danger: #ff8585;
+    --shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
+  }
+}
