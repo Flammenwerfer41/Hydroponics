@@ -49,6 +49,16 @@ const TRANSLATIONS = {
     "current.loading": "최근 데이터 불러오는 중…",
     "current.timeUnavailable": "수신 시각 확인 불가",
     "current.loadFailed": "최근 데이터를 불러오지 못했습니다.",
+    "alert.kicker": "현재 경고",
+    "alert.title": "확인이 필요한 환경입니다",
+    "alert.count": "{count}건 활성",
+    "alert.warning": "주의",
+    "alert.critical": "경보",
+    "alert.duration": "{duration} 지속",
+    "alert.justOpened": "방금 발생",
+    "alert.minutesGap": "{value}분 단절",
+    "alert.missingCount": "{value}회 연속 결측",
+    "alert.lightCheck": "상태 불일치",
     "metric.temperature": "온도",
     "metric.humidity": "습도",
     "metric.pressure": "기압",
@@ -196,6 +206,16 @@ const TRANSLATIONS = {
     "current.loading": "最新データを読み込み中…",
     "current.timeUnavailable": "受信時刻を確認できません",
     "current.loadFailed": "最新データを取得できませんでした。",
+    "alert.kicker": "現在の警告",
+    "alert.title": "確認が必要な環境です",
+    "alert.count": "{count}件発生中",
+    "alert.warning": "注意",
+    "alert.critical": "警報",
+    "alert.duration": "{duration}継続",
+    "alert.justOpened": "発生直後",
+    "alert.minutesGap": "{value}分中断",
+    "alert.missingCount": "{value}回連続欠測",
+    "alert.lightCheck": "状態不一致",
     "metric.temperature": "温度",
     "metric.humidity": "湿度",
     "metric.pressure": "気圧",
@@ -415,6 +435,7 @@ const state = {
   historySequence: 0,
   currentSequence: 0,
   currentFeed: null,
+  alertData: null,
   currentFailed: false,
   historyController: null,
   currentController: null,
@@ -604,6 +625,74 @@ function wifiDescription(rssi) {
   if (rssi >= -60) return t("wifi.good");
   if (rssi >= -70) return t("wifi.normal");
   return t("wifi.weak");
+}
+
+function alertValue(alert) {
+  const value = finiteNumber(alert?.current_value);
+  if (alert?.type === "device_data_gap") {
+    return t("alert.minutesGap", { value: Number.isFinite(value) ? Math.round(value) : "--" });
+  }
+  if (String(alert?.type || "").startsWith("sensor_missing_")) {
+    return t("alert.missingCount", { value: Number.isFinite(value) ? Math.round(value) : "--" });
+  }
+  if (alert?.type === "light_control_mismatch") return t("alert.lightCheck");
+  return Number.isFinite(value)
+    ? `${fixed(value, alert?.unit === "kPa" ? 2 : 1)}${alert?.unit ? ` ${alert.unit}` : ""}`
+    : "--";
+}
+
+function alertDuration(openedAt) {
+  const elapsed = Date.now() - Date.parse(openedAt);
+  if (!Number.isFinite(elapsed) || elapsed < 60_000) return t("alert.justOpened");
+  return t("alert.duration", { duration: formatRuntime(elapsed / 60_000) });
+}
+
+function renderAlerts(data) {
+  state.alertData = data;
+  const panel = element("alertPanel");
+  const list = element("alertList");
+  const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
+  if (alerts.length === 0) {
+    list.replaceChildren();
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  panel.dataset.severity = data.highest_severity === "critical" ? "critical" : "warning";
+  element("alertCount").textContent = t("alert.count", { count: alerts.length });
+  list.replaceChildren(...alerts.map((alert) => {
+    const item = document.createElement("div");
+    item.className = "alert-item";
+    item.dataset.severity = alert.severity === "critical" ? "critical" : "warning";
+
+    const title = document.createElement("div");
+    title.className = "alert-item-title";
+    const badge = document.createElement("span");
+    badge.className = "alert-severity";
+    badge.textContent = t(alert.severity === "critical" ? "alert.critical" : "alert.warning");
+    const label = document.createElement("span");
+    label.textContent = alert.title?.[state.language] || alert.title?.ko || alert.type;
+    title.append(badge, label);
+
+    const value = document.createElement("span");
+    value.className = "alert-item-value";
+    value.textContent = alertValue(alert);
+    const duration = document.createElement("span");
+    duration.className = "alert-item-duration";
+    duration.textContent = alertDuration(alert.opened_at);
+    item.append(title, value, duration);
+    return item;
+  }));
+}
+
+async function refreshAlerts() {
+  try {
+    const response = await fetch(dataApiUrl("/v1/alerts/active"), { cache: "no-store" });
+    if (!response.ok) return;
+    renderAlerts(await response.json());
+  } catch {
+    // Keep the last known alert display if this optional request fails.
+  }
 }
 
 async function fetchJson(url, controllerRef) {
@@ -923,6 +1012,7 @@ function renderCurrent(snapshot) {
 async function refreshCurrent() {
   if (document.hidden) return;
   const sequence = ++state.currentSequence;
+  refreshAlerts();
   try {
     const [data, lightData] = await Promise.all([
       fetchJson(
@@ -1750,6 +1840,8 @@ function setLanguage(language, persist = true) {
   } else if (state.weatherStatus === "error") {
     renderWeatherUnavailable();
   }
+
+  if (state.alertData) renderAlerts(state.alertData);
 
   renderHistoryStatus();
   renderLightTimeline();

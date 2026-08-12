@@ -9,7 +9,7 @@
   <meta name="description" content="ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드" data-i18n-content="meta.description">
   <title>Hydroponics Monitor</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=20260809-performance">
+  <link rel="stylesheet" href="styles.css?v=20260812-alerts">
   <link rel="stylesheet" href="scene.css?v=20260809-performance">
 </head>
 <body>
@@ -37,6 +37,18 @@
     </header>
 
     <main>
+      <section class="alert-panel" id="alertPanel" data-severity="warning" aria-live="polite" hidden>
+        <div class="alert-panel-heading">
+          <span class="alert-panel-icon" aria-hidden="true">!</span>
+          <div>
+            <p class="section-kicker" data-i18n="alert.kicker">현재 경고</p>
+            <h2 data-i18n="alert.title">확인이 필요한 환경입니다</h2>
+          </div>
+          <strong class="alert-count" id="alertCount"></strong>
+        </div>
+        <div class="alert-list" id="alertList"></div>
+      </section>
+
       <section class="scene-panel" aria-labelledby="currentTitle">
         <div class="section-heading scene-heading">
           <div>
@@ -293,6 +305,6 @@
 
   <noscript data-i18n="noscript">이 대시보드는 Cloudflare 센서 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
   <script src="weather-config.js" defer></script>
-  <script src="app.js?v=20260812-navigation" defer></script>
+  <script src="app.js?v=20260812-alerts" defer></script>
 </body>
 </html>
