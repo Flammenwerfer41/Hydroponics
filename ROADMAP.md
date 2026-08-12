@@ -1,8 +1,8 @@
 # Hydroponics Cloud Platform Roadmap
 
 이 문서는 현재의 단일 ESP32 수경재배 모니터를 개인용 재배 관리 시스템으로
-확장하기 위한 방향을 정리한다. 구현 순서는 안정적인 측정과 복구를 우선하며,
-ThingSpeak를 중단하기 전까지 기존 경로와 새 Cloudflare 경로를 병행한다.
+확장하기 위한 방향을 정리한다. 구현 순서는 안정적인 측정과 복구를 우선한다.
+2026-08-09부터 운영 데이터 경로는 Cloudflare로 단일화했으며 ThingSpeak는 사용하지 않는다.
 
 실행 가능한 작업, 우선순위와 진행 상태는
 [Hydroponics Cloud Platform GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)에서 관리한다.
@@ -18,24 +18,26 @@ ThingSpeak를 중단하기 전까지 기존 경로와 새 Cloudflare 경로를 �
 
 ## 목표 아키텍처
 
-```text
-ESP32 장치
-  ├─ 센서 측정 및 로컬 안전 규칙
-  ├─ LittleFS 오프라인 큐
-  └─ 인증된 HTTPS 업로드
-             ↓
-Cloudflare Worker
-  ├─ 장치 인증·중복 방지·입력 검증
-  ├─ 조회·집계·관리자 API
-  ├─ JMA 실측 및 예보 수집
-  └─ 이상 감지·Discord 알림
-       ├─ D1: 측정값, 설정, 이벤트, 일지 메타데이터
-       ├─ R2: 사진, 내보내기 파일, 장기 백업
-       └─ Static Assets: 주 대시보드와 관리자 화면
+```mermaid
+flowchart TD
+  Sensors["BME280 · DS18B20 · 향후 센서"] --> ESP["ESP32<br/>측정 · 품질 표시 · LittleFS 2주 큐"]
+  ESP -->|"장치 토큰 · HTTPS<br/>단건/벌크 재전송"| Worker["Cloudflare Worker"]
+  Worker -->|"중복 방지 · 부분값 저장"| D1["D1<br/>측정값 · 설정 · 명령 · 일지 메타데이터"]
 
-GitHub / GitLab
-  ├─ 소스 및 변경 이력
-  └─ 비상용 읽기 전용 대시보드
+  JMA["JMA 실측 · 예보"] --> Worker
+  Worker <-->|"상태 조회 · 명령"| SwitchBot["SwitchBot<br/>조명 · 에어컨"]
+
+  User["PC · 스마트폰"] --> Public["공개 대시보드"]
+  User -->|"Cloudflare Access"| Admin["관리 · 재배일지"]
+  Public --> Worker
+  Admin -->|"API 요청 · 변환된 WebP 업로드"| Worker
+  R2["R2<br/>일지 사진 · 썸네일 · D1 백업"]
+  Worker --> R2
+
+  Actions["GitHub Actions<br/>일일 보고서 · D1 백업"] -->|"보고서 데이터 조회"| Worker
+  Actions -->|"D1 export"| D1
+  Actions -->|"백업 저장"| R2
+  Git["GitHub · GitLab<br/>소스 · 변경 이력"] --> Mirrors["비상용 정적 대시보드 미러"]
 ```
 
 ## 핵심 데이터 개념
@@ -338,8 +340,11 @@ CSV/JSON 내보내기를 정기적으로 검증해 특정 서비스에 종속되
 - 완료: 날짜별 공통 관리 기록과 일지 전체 공개 설정
 - 완료: 바질·깻잎 작물별 기록과 활동 태그
 - 완료: 수동 pH·EC·양액 보충량 기록
+- 완료: 일일 대표 사진 1장과 작물별 최대 6장 업로드
+- 완료: 브라우저 WASM WebP 변환, R2 원본·썸네일 저장과 Access 보호
 - 예정: 장소·구획·작물·재배 주기 편집 화면
-- 예정: 사진 업로드, 공개 일지 조회와 그래프 이벤트 연결
+- 예정: 사진의 재배 주기 연결, 공개 일지 조회와 그래프 이벤트 연결
+- 예정: 실패한 R2 삭제를 재처리하는 고아 객체 정리 작업
 
 완료 기준: 스마트폰에서 촬영한 사진과 메모가 해당 재배 주기 및 센서 시점에
 연결된다.
