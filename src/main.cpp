@@ -15,13 +15,11 @@
 #include "secrets.h"
 #include "cloud_upload.h"
 #include "firmware_config.h"
+#include "network_manager.h"
 #include "record_codec.h"
 #include "ring_storage.h"
 #include "sensor_manager.h"
 #include "telemetry_record.h"
-#include <WiFi.h>
-#include <ArduinoOTA.h>
-#include <time.h>
 #include <math.h>
 
 #ifndef CLOUDFLARE_INGEST_URL
@@ -33,44 +31,12 @@
 #define CLOUDFLARE_DEVICE_TOKEN ""
 #endif
 
-bool timeReady = false;
-bool otaReady = false;
-volatile bool otaInProgress = false;
-wifi_ps_type_t otaPreviousSleepMode = WIFI_PS_MIN_MODEM;
-bool previousWiFiConnected = false;
-
 uint32_t lastSampleMs = 0;
-uint32_t lastWiFiAttemptMs = 0;
-uint32_t lastNtpRequestMs = 0;
-bool ntpRequestActive = false;
 uint8_t consecutiveBme280Failures = 0;
 uint32_t consecutiveWaterTemperatureFailures = 0;
 uint64_t currentBootId = 0;
 uint32_t nextReadingSequence = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
-
-bool isTimeValid(time_t value) {
-  return value >= static_cast<time_t>(firmware_config::VALID_EPOCH_MIN) &&
-         static_cast<uint64_t>(value) <= UINT32_MAX;
-}
-
-bool formatLocalTimeToBuffer(time_t value, char* buffer, size_t bufferSize) {
-  if (bufferSize == 0) return false;
-  if (!isTimeValid(value)) {
-    snprintf(buffer, bufferSize, "--");
-    return false;
-  }
-  struct tm localTime{};
-  localtime_r(&value, &localTime);
-  strftime(buffer, bufferSize, "%Y-%m-%d %H:%M:%S", &localTime);
-  return true;
-}
-
-String formatLocalTime(time_t value) {
-  char buffer[32];
-  formatLocalTimeToBuffer(value, buffer, sizeof(buffer));
-  return String(buffer);
-}
 
 uint64_t makeBootId() {
   uint64_t randomValue =
@@ -78,139 +44,10 @@ uint64_t makeBootId() {
   uint64_t value = randomValue ^ ESP.getEfuseMac();
   return value == 0 ? 1 : value;
 }
-
-void serviceNetwork() {
-  if (otaReady) ArduinoOTA.handle();
-  delay(1);
-}
-
-void servicedDelay(uint32_t milliseconds) {
-  uint32_t started = millis();
-  while (millis() - started < milliseconds) {
-    serviceNetwork();
-    delay(5);
-  }
-}
-
-bool cloudUploadPaused() {
-  return otaInProgress;
-}
-
-// ================= WI-FI / TIME / OTA =================
-bool connectWiFi(uint32_t timeoutMs = 20000UL) {
-  if (WiFi.status() == WL_CONNECTED) return true;
-  Serial.printf("Wi-Fi connecting to %s", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(false);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  uint32_t started = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - started < timeoutMs) {
-    Serial.print('.');
-    delay(500);
-  }
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nWi-Fi connection timed out.");
-    previousWiFiConnected = false;
-    return false;
-  }
-  previousWiFiConnected = true;
-  Serial.println("\nWi-Fi connected.");
-  Serial.print("IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
-  return true;
-}
-
-void maintainWiFi() {
-  bool connected = WiFi.status() == WL_CONNECTED;
-  if (connected) {
-    if (!previousWiFiConnected) {
-      previousWiFiConnected = true;
-      Serial.println("Wi-Fi reconnected.");
-      Serial.print("IP: ");
-      Serial.println(WiFi.localIP());
-    }
-    return;
-  }
-
-  if (previousWiFiConnected) {
-    previousWiFiConnected = false;
-    Serial.println("Wi-Fi disconnected.");
-  }
-
-  if (millis() - lastWiFiAttemptMs <
-      firmware_config::WIFI_RECONNECT_INTERVAL_MS) return;
-  lastWiFiAttemptMs = millis();
-  Serial.println("Wi-Fi reconnecting.");
-  WiFi.disconnect();
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-}
-
-void requestTimeSync() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  configTzTime(
-    firmware_config::TIMEZONE,
-    "pool.ntp.org",
-    "time.google.com",
-    "time.nist.gov");
-  lastNtpRequestMs = millis();
-  ntpRequestActive = true;
-  Serial.println("NTP synchronization requested (non-blocking).");
-}
-
-void maintainTimeSync() {
-  time_t now = 0;
-  time(&now);
-  if (isTimeValid(now)) {
-    if (!timeReady) Serial.printf("Time synchronized: %s\n", formatLocalTime(now).c_str());
-    timeReady = true;
-    ntpRequestActive = false;
-    return;
-  }
-  timeReady = false;
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (!ntpRequestActive ||
-      millis() - lastNtpRequestMs >= firmware_config::NTP_RETRY_INTERVAL_MS) {
-    requestTimeSync();
-  }
-}
-
-void setupOTA() {
-  if (otaReady) return;
-  ArduinoOTA.setHostname(OTA_HOSTNAME);
-  ArduinoOTA.setPassword(OTA_PASSWORD);
-  ArduinoOTA.setTimeout(firmware_config::OTA_RECEIVE_TIMEOUT_MS);
-  ArduinoOTA.onStart([]() {
-    otaInProgress = true;
-    otaPreviousSleepMode = WiFi.getSleep();
-    WiFi.setSleep(WIFI_PS_NONE);
-    Serial.println("OTA start; cloud tasks paused and Wi-Fi sleep disabled.");
-  });
-  ArduinoOTA.onEnd([]() {
-    otaInProgress = false;
-    Serial.println("\nOTA completed.");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    unsigned int percent = total > 0 ? static_cast<unsigned int>((uint64_t)progress * 100ULL / total) : 0;
-    Serial.printf("OTA progress: %u%%\r", percent);
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    otaInProgress = false;
-    WiFi.setSleep(otaPreviousSleepMode);
-    Serial.printf("OTA error[%u]; cloud tasks resumed.\n", error);
-  });
-  ArduinoOTA.begin();
-  otaReady = true;
-  Serial.printf("OTA ready: %s.local\n", OTA_HOSTNAME);
-}
-
 // ================= MEASUREMENT =================
 void performMeasurementCycle() {
   time_t now;
-  time(&now);
-  if (!isTimeValid(now)) maintainTimeSync();
-  time(&now);
+  network_manager::refreshCurrentTime(now);
 
   float temperature = NAN;
   float humidity = NAN;
@@ -229,7 +66,7 @@ void performMeasurementCycle() {
                   firmware_config::MAX_CONSECUTIVE_AIR_SENSOR_FAILURES);
     if (consecutiveBme280Failures >=
         firmware_config::MAX_CONSECUTIVE_AIR_SENSOR_FAILURES) {
-      servicedDelay(1000);
+      network_manager::servicedDelay(1000);
       ESP.restart();
     }
   }
@@ -249,10 +86,10 @@ void performMeasurementCycle() {
     return;
   }
 
-  int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  int rssi = network_manager::rssi();
 
   Serial.println("--------------------------------");
-  Serial.printf("Time: %s\n", formatLocalTime(now).c_str());
+  Serial.printf("Time: %s\n", network_manager::formatLocalTime(now).c_str());
   if (bme280Valid) {
     Serial.printf("Temperature: %.2f C\nHumidity: %.2f %%\nPressure: %.2f hPa\n",
                   temperature, humidity, pressure);
@@ -276,7 +113,7 @@ void performMeasurementCycle() {
 
   bool localSaved = false;
   uint32_t writtenSlot = UINT32_MAX;
-  if (ring_storage::ready() && isTimeValid(now)) {
+  if (ring_storage::ready() && network_manager::isTimeValid(now)) {
     localSaved = ring_storage::appendRecord(record, writtenSlot);
     if (!localSaved) {
       Serial.println("Local record append failed.");
@@ -299,14 +136,15 @@ void setup() {
   Serial.printf("Boot ID: %s, reset reason: %s\n",
                 bootId, resetReasonName(bootResetReason));
 
-  sensors::begin(servicedDelay);
-  connectWiFi();
-  if (WiFi.status() == WL_CONNECTED) {
-    requestTimeSync();
-    setupOTA();
-  }
+  sensors::begin(network_manager::servicedDelay);
+  network_manager::begin({
+    WIFI_SSID,
+    WIFI_PASSWORD,
+    OTA_HOSTNAME,
+    OTA_PASSWORD
+  });
 
-  ring_storage::begin(serviceNetwork);
+  ring_storage::begin(network_manager::service);
   cloud_upload::configure(CLOUDFLARE_INGEST_URL, CLOUDFLARE_DEVICE_TOKEN);
   Serial.printf("Cloudflare ingestion: %s\n",
                 cloud_upload::configured()
@@ -314,19 +152,14 @@ void setup() {
                   : "disabled (device token missing)");
   Serial.printf("Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
-  cloud_upload::begin(cloudUploadPaused);
+  cloud_upload::begin(network_manager::otaInProgress);
   lastSampleMs = millis() - firmware_config::SAMPLE_INTERVAL_MS;
   Serial.println("Setup complete.");
 }
 
 void loop() {
-  maintainWiFi();
-  if (WiFi.status() == WL_CONNECTED) {
-    maintainTimeSync();
-    setupOTA();
-  }
-
-  serviceNetwork();
+  network_manager::maintain();
+  network_manager::service();
 
   if (millis() - lastSampleMs >= firmware_config::SAMPLE_INTERVAL_MS) {
     lastSampleMs = millis();
