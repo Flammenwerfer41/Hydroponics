@@ -32,6 +32,8 @@ The date-based cultivation journal, crop sections and manual pH/EC/top-up record
 documented in [`JOURNAL.md`](JOURNAL.md).
 Long-term JMA observations and the latest-only forecast cache are documented in
 [`WEATHER_ARCHIVE.md`](WEATHER_ARCHIVE.md).
+Persistent warning/critical state, Discord delivery and the public active-alert API
+are documented in [`ALERTS.md`](ALERTS.md).
 
 ## Cloudflare dashboard setup
 

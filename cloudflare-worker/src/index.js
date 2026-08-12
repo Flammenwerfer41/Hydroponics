@@ -10,6 +10,9 @@ import { handleJournalAdmin } from "./journal/handler.js";
 import { handlePublicJournal } from "./journal/public-handler.js";
 import { pollAndReconcile } from "./control/service.js";
 import { processJournalCleanup } from "./journal/cleanup.js";
+import { deliverDiscordNotifications } from "./alerts/discord.js";
+import { handlePublicAlerts } from "./alerts/handler.js";
+import { evaluateAlerts } from "./alerts/service.js";
 import {
   latestObservationTime,
   latestStoredWeather,
@@ -491,6 +494,10 @@ async function routeRequest(request, environment, context) {
       return handlePublicLight(request, environment, path);
     }
 
+    if (path === "/v1/alerts/active") {
+      return handlePublicAlerts(request, environment);
+    }
+
     if ((request.method === "POST" || request.method === "OPTIONS") &&
         (path === "/v1/readings" || path === "/v1/readings/bulk")) {
       return handleIngestion(request, environment, context, path);
@@ -541,11 +548,26 @@ export default {
       console.error("Scheduled control skipped: D1 binding is unavailable");
       return;
     }
-    context.waitUntil(
-      pollAndReconcile(environment, new Date(controller.scheduledTime))
-        .catch((error) => console.error("Scheduled SwitchBot reconciliation failed", error))
-    );
     const scheduledAt = new Date(controller.scheduledTime);
+    context.waitUntil((async () => {
+      try {
+        await pollAndReconcile(environment, scheduledAt);
+      } catch (error) {
+        console.error("Scheduled SwitchBot reconciliation failed", error);
+      }
+      try {
+        const result = await evaluateAlerts(environment, scheduledAt);
+        if (result.events.length) console.log("Scheduled alert evaluation created events", result.events.length);
+      } catch (error) {
+        console.error("Scheduled alert evaluation failed", error);
+      }
+      try {
+        const result = await deliverDiscordNotifications(environment, new Date());
+        if (result.attempted) console.log("Scheduled Discord alert delivery completed", result);
+      } catch (error) {
+        console.error("Scheduled Discord alert delivery failed", error);
+      }
+    })());
     if (shouldCollectJmaObservation(scheduledAt)) {
       context.waitUntil(
         archiveJmaWeather(environment, scheduledAt, shouldCollectJmaForecast(scheduledAt))

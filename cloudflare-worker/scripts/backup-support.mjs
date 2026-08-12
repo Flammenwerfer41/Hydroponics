@@ -32,6 +32,9 @@ export const DATABASE_TABLES = Object.freeze([
   "assets",
   "weather_records",
   "alerts",
+  "alert_rules",
+  "alert_rule_states",
+  "alert_notifications",
   "audit_log"
 ]);
 

@@ -25,6 +25,10 @@ journal day. Binary image objects remain in the private R2 bucket.
 failures are retried without leaving silent orphan objects.
 `0009_jma_weather_archive.sql` adds the compound lookup index used by long-term JMA
 observation storage and the single latest-forecast cache in `weather_records`.
+`0010_alert_monitoring.sql` adds editable alert thresholds, persistent rule state,
+incident history and an idempotent Discord notification outbox. The initial rules
+cover data gaps, per-sensor missing values, grow-light mismatches and sustained
+air-temperature, VPD and nutrient-water-temperature risk.
 
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
