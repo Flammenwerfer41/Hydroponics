@@ -137,7 +137,7 @@ function renderList(entries) {
     date.textContent = formatDate(entry.journal_date);
     const visibility = document.createElement("span");
     visibility.className = `visibility ${entry.visibility}`;
-    visibility.textContent = entry.visibility === "public" ? "공개 예정" : "비공개";
+    visibility.textContent = entry.visibility === "public" ? "공개" : "비공개";
     top.append(date, visibility);
     const crops = document.createElement("div");
     crops.className = "crop-chips";
@@ -355,7 +355,7 @@ function renderDetail(entry) {
   element("detailDate").textContent = formatDate(entry.journal_date);
   const visibility = element("detailVisibility");
   visibility.className = `visibility ${entry.visibility}`;
-  visibility.textContent = entry.visibility === "public" ? "공개 예정" : "비공개";
+  visibility.textContent = entry.visibility === "public" ? "공개" : "비공개";
   element("detailUpdatedAt").textContent = `수정 ${formatUpdatedAt(entry.updated_at)}`;
 
   const photo = element("detailPhoto");
