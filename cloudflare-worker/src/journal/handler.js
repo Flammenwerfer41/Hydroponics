@@ -1,6 +1,7 @@
 import { authenticateAdmin } from "../admin/access.js";
 import { JournalRequestError, parseJournalInput, parseJournalListQuery } from "./contract.js";
 import { parsePhotoUpload, photoExtension } from "./photo.js";
+import { removeJournalObjects, removeManyJournalObjects } from "./cleanup.js";
 import {
   attachJournalCropPhoto,
   attachJournalPhoto,
@@ -77,18 +78,6 @@ function revisionHeader(request) {
     );
   }
   return Number(raw);
-}
-
-async function removeObjects(bucket, photo) {
-  if (!bucket || !photo) return;
-  await Promise.allSettled([
-    bucket.delete(photo.full_object_key),
-    bucket.delete(photo.thumbnail_object_key)
-  ]);
-}
-
-async function removeManyObjects(bucket, photos) {
-  await Promise.all((photos || []).map((photo) => removeObjects(bucket, photo)));
 }
 
 async function photoBody(database, bucket, id, request) {
@@ -178,13 +167,13 @@ async function putPhoto(database, bucket, id, request, actor) {
       width: upload.width,
       height: upload.height
     }, actor, upload.revision);
-    await removeObjects(bucket, previous);
+    await removeJournalObjects(database, bucket, previous, "journal_cover_replaced");
     return response({ schema_version: 1, entry });
   } catch (caught) {
-    await removeObjects(bucket, {
+    await removeJournalObjects(database, bucket, {
       full_object_key: fullObjectKey,
       thumbnail_object_key: thumbnailObjectKey
-    });
+    }, "journal_cover_upload_rollback");
     throw caught;
   }
 }
@@ -227,10 +216,10 @@ async function postCropPhoto(database, bucket, route, request, actor) {
     if (!entry) throw new JournalRequestError("not_found", "Journal not found", 404);
     return response({ schema_version: 1, entry }, 201);
   } catch (caught) {
-    await removeObjects(bucket, {
+    await removeJournalObjects(database, bucket, {
       full_object_key: fullObjectKey,
       thumbnail_object_key: thumbnailObjectKey
-    });
+    }, "journal_crop_upload_rollback");
     throw caught;
   }
 }
@@ -283,7 +272,12 @@ export async function handleJournalAdmin(request, environment, path) {
         actor,
         revisionHeader(request)
       );
-      await removeObjects(environment.JOURNAL_PHOTOS, previous);
+      await removeJournalObjects(
+        environment.HYDROPONICS_DB,
+        environment.JOURNAL_PHOTOS,
+        previous,
+        "journal_crop_photo_removed"
+      );
       return response({ schema_version: 1, entry });
     }
     if (request.method === "GET" && photoId) {
@@ -310,7 +304,12 @@ export async function handleJournalAdmin(request, environment, path) {
         actor,
         revisionHeader(request)
       );
-      await removeObjects(environment.JOURNAL_PHOTOS, previous);
+      await removeJournalObjects(
+        environment.HYDROPONICS_DB,
+        environment.JOURNAL_PHOTOS,
+        previous,
+        "journal_cover_removed"
+      );
       return response({ schema_version: 1, entry });
     }
     if (request.method === "GET" && path === "/admin/api/journal/meta") {
@@ -341,7 +340,12 @@ export async function handleJournalAdmin(request, environment, path) {
     if (request.method === "DELETE" && id) {
       const photos = await journalAllPhotoObjects(environment.HYDROPONICS_DB, id);
       const deleted = await deleteJournalDay(environment.HYDROPONICS_DB, id, actor);
-      if (deleted) await removeManyObjects(environment.JOURNAL_PHOTOS, photos);
+      if (deleted) await removeManyJournalObjects(
+        environment.HYDROPONICS_DB,
+        environment.JOURNAL_PHOTOS,
+        photos,
+        "journal_deleted"
+      );
       return deleted ? response({ schema_version: 1, deleted: true }) : error("not_found", "Journal not found", 404);
     }
     return error("not_found", "Journal route not found", 404);

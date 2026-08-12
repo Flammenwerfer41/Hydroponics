@@ -9,6 +9,7 @@ import { handleAdmin, handlePublicLight } from "./control/handler.js";
 import { handleJournalAdmin } from "./journal/handler.js";
 import { handlePublicJournal } from "./journal/public-handler.js";
 import { pollAndReconcile } from "./control/service.js";
+import { processJournalCleanup } from "./journal/cleanup.js";
 
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
 const JMA_FORECAST_URL =
@@ -469,5 +470,15 @@ export default {
       pollAndReconcile(environment, new Date(controller.scheduledTime))
         .catch((error) => console.error("Scheduled SwitchBot reconciliation failed", error))
     );
+    const scheduledAt = new Date(controller.scheduledTime);
+    if (scheduledAt.getUTCMinutes() === 17 && environment.JOURNAL_PHOTOS) {
+      context.waitUntil(
+        processJournalCleanup(environment.HYDROPONICS_DB, environment.JOURNAL_PHOTOS, scheduledAt)
+          .then((result) => {
+            if (result.attempted) console.log("Scheduled R2 cleanup completed", result);
+          })
+          .catch((error) => console.error("Scheduled R2 cleanup failed", error))
+      );
+    }
   }
 };

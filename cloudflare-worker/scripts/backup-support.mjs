@@ -28,6 +28,7 @@ export const DATABASE_TABLES = Object.freeze([
   "journal_day_values",
   "journal_photos",
   "journal_crop_photos",
+  "r2_cleanup_queue",
   "assets",
   "weather_records",
   "alerts",

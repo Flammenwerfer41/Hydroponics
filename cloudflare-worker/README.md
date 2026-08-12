@@ -11,6 +11,7 @@ SwitchBot management dashboard.
 - Dashboard: `/`
 - Management dashboard: `/admin/` (Cloudflare Access required)
 - Cultivation journal: `/admin/journal/` (Cloudflare Access required)
+- Public journal: `/journal/` (only entries explicitly marked public)
 - Weather endpoint: `/v1/current`
 - Cache: five minutes
 - JMA routes require no API key; control routes use Worker Secrets

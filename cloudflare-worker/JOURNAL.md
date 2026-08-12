@@ -13,6 +13,7 @@ management notes from crop-specific observations.
 - `journal_day_values`: named manual measurements, currently pH, EC and solution top-up
 - `journal_photos`: one R2-backed photo reference and thumbnail per journal day
 - `journal_crop_photos`: up to six R2-backed photos per crop and journal day
+- `r2_cleanup_queue`: failed private R2 object deletions with exponential retry state
 
 Manual values use canonical metric names and a `source` column instead of dedicated
 columns on `journal_days`. A future pH or EC sensor can therefore write the same metric
@@ -20,8 +21,9 @@ with `source = 'sensor'` without changing the journal-day schema. Top-up liquid 
 stored as a qualifier and volume is stored in litres.
 
 Visibility applies to the complete daily record. Crop sections do not have independent
-visibility. The public dashboard does not expose journal records yet; `public` records
-are ready for that later read-only API.
+visibility. Only records explicitly saved as `public` are available from the read-only
+public API; switching a record back to `private` immediately removes its text and photos
+from public lookup.
 
 The original `journal_entries` table from migration 0001 is retained for migration
 compatibility but is not used by this feature.
@@ -64,6 +66,26 @@ The administrator interface accepts either a mobile camera capture or an existin
 It converts each selected image to WebP in a browser-side WASM worker, limits the long edge
 to 1920 pixels, and creates a 420-pixel thumbnail. A full image is capped at 1 MB and a
 thumbnail at 100 KB before transmission. R2 stores the image objects in the private
-`hydroponics-journal-photos` bucket while D1 stores only metadata and object keys. Both
-photo reads and writes remain behind Cloudflare Access. Public journal display and firmware
-changes remain outside this release.
+`hydroponics-journal-photos` bucket while D1 stores only metadata and object keys.
+Administrator photo reads and all writes remain behind Cloudflare Access.
+
+## Public interface
+
+Open `/journal/` without administrator authentication. It supports the same calendar,
+crop and activity filters as the administrator list, but exposes no editing controls.
+
+```text
+GET /api/journal/meta
+GET /api/journal?year=2026&month=8&day=9&crop_id=...&tag_id=...
+GET /api/journal/:id
+GET /api/journal/:id/photo[?variant=thumbnail]
+GET /api/journal/:id/crops/:cropId/photos/:photoId[?variant=thumbnail]
+```
+
+Public responses omit administrator identity, optimistic revisions, device/site internals,
+R2 object keys and mutation routes. Photos are streamed through the Worker only after the
+parent day is confirmed public and are returned with `Cache-Control: no-store`.
+
+When a cover, crop photo or whole day is removed, the Worker first attempts the R2 delete.
+A failure is stored in `r2_cleanup_queue`; the minute scheduler processes up to 20 due
+objects once per hour with exponential delays capped at 24 hours.
