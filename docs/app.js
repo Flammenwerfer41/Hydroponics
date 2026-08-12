@@ -1,5 +1,18 @@
 "use strict";
 
+import {
+  calculateDerivedMetrics,
+  DAY_MS,
+  finiteNumber,
+  historyDomain,
+  historyWindowQuery,
+  lightHistoryQuery,
+  mergeTimeSeries,
+  niceBounds,
+  parseAggregateHistory,
+  parseRawHistory
+} from "./dashboard/data.js?v=1";
+
 const DATA_API_BASE = String(globalThis.HYDROPONICS_CONFIG?.dataApiBaseUrl || "")
   .trim()
   .replace(/\/+$/, "");
@@ -25,8 +38,6 @@ const AGGREGATE_HISTORY_OVERLAP_MS = 2 * 60 * 60_000;
 const WEATHER_REFRESH_MS = 15 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const JST_TIME_ZONE = "Asia/Tokyo";
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const LANGUAGE_STORAGE_KEY = "hydroponics-language";
 const WEATHER_API_URL = String(
   globalThis.HYDROPONICS_CONFIG?.weatherApiUrl || `${DATA_API_BASE}/v1/current`
@@ -478,12 +489,6 @@ function locale() {
   return state.language === "ja" ? "ja-JP" : "ko-KR";
 }
 
-function finiteNumber(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
 function dataApiUrl(path) {
   return `${DATA_API_BASE}${path}`;
 }
@@ -507,36 +512,6 @@ function formatJst(date, options) {
     timeZone: JST_TIME_ZONE,
     ...options
   }).format(date);
-}
-
-function jstMidnight(timestamp = Date.now()) {
-  const shifted = new Date(timestamp + JST_OFFSET_MS);
-  return Date.UTC(
-    shifted.getUTCFullYear(),
-    shifted.getUTCMonth(),
-    shifted.getUTCDate()
-  ) - JST_OFFSET_MS;
-}
-
-function historyDomain(range) {
-  const now = Date.now();
-  if (range === "day") {
-    const todayStart = jstMidnight(now);
-    return {
-      start: todayStart,
-      end: todayStart + DAY_MS,
-      previousStart: todayStart - DAY_MS,
-      todayStart
-    };
-  }
-
-  const duration = range === "week" ? 7 * DAY_MS : 30 * DAY_MS;
-  return {
-    start: now - duration,
-    end: now,
-    previousStart: 0,
-    todayStart: 0
-  };
 }
 
 function relativeTime(date) {
@@ -580,12 +555,8 @@ function vpdDescription(value) {
 }
 
 function renderDerivedMetrics(temperature, humidity) {
-  if (
-    !Number.isFinite(temperature) ||
-    !Number.isFinite(humidity) ||
-    humidity <= 0 ||
-    humidity > 100
-  ) {
+  const metrics = calculateDerivedMetrics(temperature, humidity);
+  if (!metrics) {
     element("discomfortIndex").textContent = "--";
     element("vpdValue").textContent = "--";
     element("dewPoint").textContent = "--";
@@ -595,18 +566,7 @@ function renderDerivedMetrics(temperature, humidity) {
     return;
   }
 
-  const discomfort =
-    0.81 * temperature +
-    0.01 * humidity * (0.99 * temperature - 14.3) +
-    46.3;
-  const saturationPressure =
-    0.6108 * Math.exp((17.27 * temperature) / (temperature + 237.3));
-  const vpd = saturationPressure * (1 - humidity / 100);
-  const gamma =
-    Math.log(humidity / 100) +
-    (17.62 * temperature) / (243.12 + temperature);
-  const dewPoint = (243.12 * gamma) / (17.62 - gamma);
-  const condensationGap = temperature - dewPoint;
+  const { discomfort, vpd, dewPoint, condensationGap } = metrics;
 
   element("discomfortIndex").textContent = fixed(discomfort, 0);
   element("discomfortNote").textContent = discomfortDescription(discomfort);
@@ -1036,56 +996,6 @@ async function refreshCurrent() {
   }
 }
 
-function parseRawHistory(readings) {
-  return readings
-    .map((reading) => ({
-      time: Date.parse(reading.measured_at),
-      temperature: finiteNumber(reading.values?.air_temperature),
-      humidity: finiteNumber(reading.values?.humidity),
-      pressure: finiteNumber(reading.values?.pressure),
-      waterTemperature: finiteNumber(reading.values?.water_temperature)
-    }))
-    .filter((point) => Number.isFinite(point.time))
-    .sort((a, b) => a.time - b.time);
-}
-
-function parseAggregateHistory(buckets) {
-  return buckets
-    .map((bucket) => ({
-      time: Date.parse(bucket.start),
-      temperature: finiteNumber(bucket.metrics?.air_temperature?.mean),
-      humidity: finiteNumber(bucket.metrics?.humidity?.mean),
-      pressure: finiteNumber(bucket.metrics?.pressure?.mean),
-      waterTemperature: finiteNumber(bucket.metrics?.water_temperature?.mean)
-    }))
-    .filter((point) => Number.isFinite(point.time))
-    .sort((a, b) => a.time - b.time);
-}
-
-function historyWindowQuery(config, window) {
-  if (!window) return config.query;
-  const parameters = new URLSearchParams({
-    from: new Date(window.from).toISOString(),
-    to: new Date(window.to).toISOString(),
-    device_id: "esp32-01"
-  });
-  if (config.paginated) parameters.set("limit", "1000");
-  return parameters.toString();
-}
-
-function lightHistoryQuery(range, window) {
-  const parameters = new URLSearchParams({
-    granularity: range === "day" ? "raw" : "hourly"
-  });
-  if (window) {
-    parameters.set("from", new Date(window.from).toISOString());
-    parameters.set("to", new Date(window.to).toISOString());
-  } else {
-    parameters.set("days", String(range === "month" ? 30 : range === "week" ? 7 : 2));
-  }
-  return parameters.toString();
-}
-
 async function fetchHistoryPoints(config, range, window = null) {
   const metrics = `metrics=${HISTORY_METRICS.join(",")}`;
   const lightPromise = fetch(dataApiUrl(
@@ -1123,15 +1033,6 @@ async function fetchHistoryPoints(config, range, window = null) {
     if (!cursor) return { sensorPoints: parseRawHistory(readings), lightPoints: await lightPromise };
   }
   throw new Error("History pagination exceeded the safety limit");
-}
-
-function mergeTimeSeries(current, incoming, earliest, end) {
-  const pointsByTime = new Map();
-  current.forEach((point) => pointsByTime.set(point.time, point));
-  incoming.forEach((point) => pointsByTime.set(point.time, point));
-  return [...pointsByTime.values()]
-    .filter((point) => point.time >= earliest && point.time <= end)
-    .sort((left, right) => left.time - right.time);
 }
 
 function incrementalHistoryWindow(range, domain) {
@@ -1429,23 +1330,6 @@ function colorWithAlpha(color, alpha) {
     return `rgba(${(number >> 16) & 255}, ${(number >> 8) & 255}, ${number & 255}, ${alpha})`;
   }
   return color;
-}
-
-function niceBounds(values, config) {
-  if (!values.length) return [0, config.minimumSpan];
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const rawSpan = maximum - minimum;
-  const paddedSpan = Math.max(config.minimumSpan, rawSpan * 1.24);
-  const center = (minimum + maximum) / 2;
-  let low = Math.floor((center - paddedSpan / 2) / config.step) * config.step;
-  let high = Math.ceil((center + paddedSpan / 2) / config.step) * config.step;
-  if (high - low < config.minimumSpan) high = low + config.minimumSpan;
-  if (config.field === "humidity") {
-    low = Math.max(0, low);
-    high = Math.min(100, high);
-  }
-  return [low, high];
 }
 
 function chartSeries(field) {
