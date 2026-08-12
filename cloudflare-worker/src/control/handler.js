@@ -1,4 +1,5 @@
 import { authenticateAdmin } from "../admin/access.js";
+import { jsonResponse, publicCorsHeaders } from "../http/response.js";
 import {
   latestSensorSnapshot,
   latestTelemetry,
@@ -10,21 +11,12 @@ import {
 import { manualAcCommand, manualLightCommand, nextTransition, scheduledPower } from "./service.js";
 
 function response(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body, null, 2) + "\n", {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      ...headers
-    }
-  });
+  return jsonResponse(body, status, { "Cache-Control": "no-store", ...headers });
 }
 
 function publicResponse(body, status = 200) {
   return response(body, status, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS"
+    ...publicCorsHeaders("GET, OPTIONS", "")
   });
 }
 

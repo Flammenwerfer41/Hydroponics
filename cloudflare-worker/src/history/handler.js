@@ -1,5 +1,6 @@
 import { METRICS } from "../ingestion/contract.js";
 import { authenticateAdmin } from "../admin/access.js";
+import { jsonResponse as sharedJsonResponse, publicCorsHeaders } from "../http/response.js";
 import {
   HISTORY_SCHEMA_VERSION,
   HISTORY_TIMEZONE,
@@ -36,21 +37,11 @@ const CACHE_SECONDS = Object.freeze({
 });
 
 const CORS_HEADERS = Object.freeze({
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "X-Content-Type-Options": "nosniff"
+  ...publicCorsHeaders()
 });
 
 function jsonResponse(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body, null, 2) + "\n", {
-    status,
-    headers: {
-      ...CORS_HEADERS,
-      "Content-Type": "application/json; charset=utf-8",
-      ...headers
-    }
-  });
+  return sharedJsonResponse(body, status, { ...CORS_HEADERS, ...headers });
 }
 
 function errorResponse(code, message, status = 400) {

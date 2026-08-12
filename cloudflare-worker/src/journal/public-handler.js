@@ -1,4 +1,5 @@
 import { JournalRequestError, parseJournalListQuery } from "./contract.js";
+import { jsonResponse, preflightResponse, publicCorsHeaders } from "../http/response.js";
 import {
   listPublicJournalDays,
   publicJournalCatalog,
@@ -8,17 +9,10 @@ import {
 } from "./store.js";
 
 function json(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body, null, 2) + "\n", {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      ...headers
-    }
+  return jsonResponse(body, status, {
+    "Cache-Control": "no-store",
+    ...publicCorsHeaders(),
+    ...headers
   });
 }
 
@@ -64,12 +58,7 @@ async function photoResponse(bucket, metadata, request) {
 
 export async function handlePublicJournal(request, environment, path) {
   if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Max-Age": "86400"
-    } });
+    return preflightResponse();
   }
   if (request.method !== "GET") {
     return error("method_not_allowed", "Only GET is supported", 405);

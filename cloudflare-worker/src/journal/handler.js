@@ -1,4 +1,5 @@
 import { authenticateAdmin } from "../admin/access.js";
+import { jsonResponse } from "../http/response.js";
 import { JournalRequestError, parseJournalInput, parseJournalListQuery } from "./contract.js";
 import { parsePhotoUpload, photoExtension } from "./photo.js";
 import { removeJournalObjects, removeManyJournalObjects } from "./cleanup.js";
@@ -19,15 +20,7 @@ import {
 } from "./store.js";
 
 function response(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body, null, 2) + "\n", {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      ...headers
-    }
-  });
+  return jsonResponse(body, status, { "Cache-Control": "no-store", ...headers });
 }
 
 function error(code, message, status = 400) {

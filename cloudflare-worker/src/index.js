@@ -1,4 +1,5 @@
 import { handleIngestion } from "./ingestion/handler.js";
+import { jsonResponse as sharedJsonResponse, publicCorsHeaders } from "./http/response.js";
 import {
   handleAdminExport,
   handleHistory,
@@ -113,16 +114,9 @@ const WIND_DIRECTIONS = Object.freeze([
 ]);
 
 function jsonResponse(body, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(body, null, 2) + "\n", {
-    status,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Content-Type": "application/json; charset=utf-8",
-      "X-Content-Type-Options": "nosniff",
-      ...extraHeaders
-    }
+  return sharedJsonResponse(body, status, {
+    ...publicCorsHeaders(),
+    ...extraHeaders
   });
 }
 

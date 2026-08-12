@@ -1,6 +1,7 @@
 import { authenticateDevice, sha256Hex } from "./auth.js";
 import { ReadingValidationError, normalizeReading } from "./contract.js";
 import { persistReading } from "./store.js";
+import { jsonResponse, preflightResponse } from "../http/response.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 // D1 Free allows 50 queries per Worker invocation. Each reading uses two batched
@@ -8,15 +9,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 const MAX_BULK_READINGS = 15;
 
 function apiResponse(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body, null, 2) + "\n", {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      ...headers
-    }
-  });
+  return jsonResponse(body, status, { "Cache-Control": "no-store", ...headers });
 }
 
 function errorResponse(code, message, status, details) {
@@ -114,14 +107,9 @@ function responseStatusFor(result) {
 }
 
 export function ingestionOptionsResponse() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Content-Type",
-      "Access-Control-Max-Age": "86400"
-    }
+  return preflightResponse({
+    methods: "GET, POST, OPTIONS",
+    allowedHeaders: "Authorization, Content-Type"
   });
 }
 
