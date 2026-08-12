@@ -14,6 +14,7 @@
 #include <Arduino.h>
 #include "secrets.h"
 #include "cloud_upload.h"
+#include "firmware_config.h"
 #include "record_codec.h"
 #include "ring_storage.h"
 #include "sensor_manager.h"
@@ -32,18 +33,6 @@
 #define CLOUDFLARE_DEVICE_TOKEN ""
 #endif
 
-// ================= USER SETTINGS =================
-const char* TZ_INFO = "JST-9";
-
-constexpr uint32_t SAMPLE_INTERVAL_MS = 120000UL;
-constexpr uint8_t MAX_CONSECUTIVE_SENSOR_FAILURES = 5;
-constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000UL;
-constexpr uint32_t NTP_RETRY_INTERVAL_MS = 300000UL;
-constexpr uint32_t OTA_RECEIVE_TIMEOUT_MS = 8000UL;
-constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
-constexpr const char* FIRMWARE_VERSION = "8.4.0";
-constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (4UL << 8);
-
 bool timeReady = false;
 bool otaReady = false;
 volatile bool otaInProgress = false;
@@ -61,7 +50,7 @@ uint32_t nextReadingSequence = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 
 bool isTimeValid(time_t value) {
-  return value >= static_cast<time_t>(VALID_EPOCH_MIN) &&
+  return value >= static_cast<time_t>(firmware_config::VALID_EPOCH_MIN) &&
          static_cast<uint64_t>(value) <= UINT32_MAX;
 }
 
@@ -150,7 +139,8 @@ void maintainWiFi() {
     Serial.println("Wi-Fi disconnected.");
   }
 
-  if (millis() - lastWiFiAttemptMs < WIFI_RECONNECT_INTERVAL_MS) return;
+  if (millis() - lastWiFiAttemptMs <
+      firmware_config::WIFI_RECONNECT_INTERVAL_MS) return;
   lastWiFiAttemptMs = millis();
   Serial.println("Wi-Fi reconnecting.");
   WiFi.disconnect();
@@ -159,7 +149,11 @@ void maintainWiFi() {
 
 void requestTimeSync() {
   if (WiFi.status() != WL_CONNECTED) return;
-  configTzTime(TZ_INFO, "pool.ntp.org", "time.google.com", "time.nist.gov");
+  configTzTime(
+    firmware_config::TIMEZONE,
+    "pool.ntp.org",
+    "time.google.com",
+    "time.nist.gov");
   lastNtpRequestMs = millis();
   ntpRequestActive = true;
   Serial.println("NTP synchronization requested (non-blocking).");
@@ -176,14 +170,17 @@ void maintainTimeSync() {
   }
   timeReady = false;
   if (WiFi.status() != WL_CONNECTED) return;
-  if (!ntpRequestActive || millis() - lastNtpRequestMs >= NTP_RETRY_INTERVAL_MS) requestTimeSync();
+  if (!ntpRequestActive ||
+      millis() - lastNtpRequestMs >= firmware_config::NTP_RETRY_INTERVAL_MS) {
+    requestTimeSync();
+  }
 }
 
 void setupOTA() {
   if (otaReady) return;
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
-  ArduinoOTA.setTimeout(OTA_RECEIVE_TIMEOUT_MS);
+  ArduinoOTA.setTimeout(firmware_config::OTA_RECEIVE_TIMEOUT_MS);
   ArduinoOTA.onStart([]() {
     otaInProgress = true;
     otaPreviousSleepMode = WiFi.getSleep();
@@ -228,8 +225,10 @@ void performMeasurementCycle() {
     sensors::invalidateAir();
     if (consecutiveBme280Failures < UINT8_MAX) consecutiveBme280Failures++;
     Serial.printf("BME280 measurement failed (%u/%u).\n",
-                  consecutiveBme280Failures, MAX_CONSECUTIVE_SENSOR_FAILURES);
-    if (consecutiveBme280Failures >= MAX_CONSECUTIVE_SENSOR_FAILURES) {
+                  consecutiveBme280Failures,
+                  firmware_config::MAX_CONSECUTIVE_AIR_SENSOR_FAILURES);
+    if (consecutiveBme280Failures >=
+        firmware_config::MAX_CONSECUTIVE_AIR_SENSOR_FAILURES) {
       servicedDelay(1000);
       ESP.restart();
     }
@@ -265,7 +264,7 @@ void performMeasurementCycle() {
   record.timestamp = static_cast<uint32_t>(now);
   record.bootId = currentBootId;
   record.sequence = nextReadingSequence++;
-  record.firmwareVersion = FIRMWARE_VERSION_CODE;
+  record.firmwareVersion = firmware_config::FIRMWARE_VERSION_CODE;
   record.resetReason = static_cast<uint8_t>(bootResetReason);
   record.temperature = temperature;
   record.humidity = humidity;
@@ -291,7 +290,8 @@ void performMeasurementCycle() {
 void setup() {
   Serial.begin(115200);
   delay(800);
-  Serial.printf("\nESP32 hydroponics logger v%s starting.\n", FIRMWARE_VERSION);
+  Serial.printf("\nESP32 hydroponics logger v%s starting.\n",
+                firmware_config::FIRMWARE_VERSION);
   currentBootId = makeBootId();
   bootResetReason = esp_reset_reason();
   char bootId[17];
@@ -315,7 +315,7 @@ void setup() {
   Serial.printf("Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
   cloud_upload::begin(cloudUploadPaused);
-  lastSampleMs = millis() - SAMPLE_INTERVAL_MS;
+  lastSampleMs = millis() - firmware_config::SAMPLE_INTERVAL_MS;
   Serial.println("Setup complete.");
 }
 
@@ -328,7 +328,7 @@ void loop() {
 
   serviceNetwork();
 
-  if (millis() - lastSampleMs >= SAMPLE_INTERVAL_MS) {
+  if (millis() - lastSampleMs >= firmware_config::SAMPLE_INTERVAL_MS) {
     lastSampleMs = millis();
     performMeasurementCycle();
   }

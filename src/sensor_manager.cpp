@@ -6,18 +6,13 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+#include "firmware_config.h"
 #include "telemetry_record.h"
 
 namespace {
 
-constexpr int I2C_SDA_PIN = 18;
-constexpr int I2C_SCL_PIN = 19;
-constexpr int WATER_TEMPERATURE_PIN = 21;
-constexpr uint8_t DS18B20_RESOLUTION_BITS = 11;
-constexpr uint32_t DS18B20_CONVERSION_MS = 375UL;
-
 Adafruit_BME280 bme;
-OneWire waterTemperatureBus(WATER_TEMPERATURE_PIN);
+OneWire waterTemperatureBus(firmware_config::WATER_TEMPERATURE_PIN);
 DallasTemperature waterTemperatureSensors(&waterTemperatureBus);
 DeviceAddress waterTemperatureAddress{};
 
@@ -47,15 +42,17 @@ bool initializeDS18B20() {
   waterTemperatureSensors.begin();
   if (!waterTemperatureSensors.getAddress(waterTemperatureAddress, 0)) {
     waterTemperatureSensorReady = false;
-    Serial.printf("DS18B20 not found on GPIO %d.\n", WATER_TEMPERATURE_PIN);
+    Serial.printf("DS18B20 not found on GPIO %d.\n",
+                  firmware_config::WATER_TEMPERATURE_PIN);
     return false;
   }
   waterTemperatureSensors.setResolution(
-    waterTemperatureAddress, DS18B20_RESOLUTION_BITS);
+    waterTemperatureAddress, firmware_config::DS18B20_RESOLUTION_BITS);
   waterTemperatureSensors.setWaitForConversion(false);
   waterTemperatureSensorReady = true;
   Serial.printf("DS18B20 ready on GPIO %d at %u-bit resolution.\n",
-                WATER_TEMPERATURE_PIN, DS18B20_RESOLUTION_BITS);
+                firmware_config::WATER_TEMPERATURE_PIN,
+                firmware_config::DS18B20_RESOLUTION_BITS);
   return true;
 }
 
@@ -65,7 +62,7 @@ namespace sensors {
 
 void begin(DelayHandler delayHandler) {
   serviceDelay = delayHandler;
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.begin(firmware_config::I2C_SDA_PIN, firmware_config::I2C_SCL_PIN);
   initializeBME280();
   initializeDS18B20();
 }
@@ -83,8 +80,8 @@ bool readWater(float& temperature) {
   temperature = NAN;
   if (!waterTemperatureSensorReady && !initializeDS18B20()) return false;
   waterTemperatureSensors.requestTemperaturesByAddress(waterTemperatureAddress);
-  if (serviceDelay) serviceDelay(DS18B20_CONVERSION_MS);
-  else delay(DS18B20_CONVERSION_MS);
+  if (serviceDelay) serviceDelay(firmware_config::DS18B20_CONVERSION_MS);
+  else delay(firmware_config::DS18B20_CONVERSION_MS);
   temperature = waterTemperatureSensors.getTempC(waterTemperatureAddress);
   if (validWaterMeasurement(temperature)) return true;
   waterTemperatureSensorReady = false;

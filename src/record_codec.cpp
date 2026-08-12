@@ -2,12 +2,13 @@
 
 #include <time.h>
 
+#include "firmware_config.h"
+
 namespace {
 
-constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
-
 bool formatUtcTimeToBuffer(time_t value, char* buffer, size_t bufferSize) {
-  if (bufferSize == 0 || value < static_cast<time_t>(VALID_EPOCH_MIN) ||
+  if (bufferSize == 0 ||
+      value < static_cast<time_t>(firmware_config::VALID_EPOCH_MIN) ||
       static_cast<uint64_t>(value) > UINT32_MAX) return false;
   struct tm utcTime{};
   gmtime_r(&value, &utcTime);
@@ -69,7 +70,7 @@ bool sameRecordIdentity(const SensorRecord& left, const SensorRecord& right) {
 bool validStoredRecord(const SensorRecord& record) {
   bool bme280Valid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
-  return record.timestamp >= VALID_EPOCH_MIN &&
+  return record.timestamp >= firmware_config::VALID_EPOCH_MIN &&
          record.bootId != 0 &&
          record.firmwareVersion != 0 &&
          (bme280Valid || waterValid) &&
