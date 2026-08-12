@@ -215,3 +215,14 @@ test("rate limits repeated public API reads when the binding rejects a request",
   assert.equal(response.headers.get("Retry-After"), "60");
   assert.equal(response.headers.get("X-Frame-Options"), "DENY");
 });
+
+test("allows mirror sites to preflight the public journal API", async () => {
+  const response = await worker.fetch(
+    new Request("https://worker.example/api/journal", { method: "OPTIONS" }),
+    {},
+    {}
+  );
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+  assert.match(response.headers.get("Access-Control-Allow-Methods"), /GET/);
+});

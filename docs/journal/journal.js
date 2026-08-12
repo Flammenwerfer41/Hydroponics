@@ -1,5 +1,10 @@
 const state = { catalog: null };
 const element = (id) => document.getElementById(id);
+const DATA_API_BASE = String(globalThis.HYDROPONICS_CONFIG?.dataApiBaseUrl || "").replace(/\/$/, "");
+
+function apiUrl(path) {
+  return `${DATA_API_BASE}${path}`;
+}
 
 function todayJst() {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -33,7 +38,7 @@ function notice(message, kind = "") {
 }
 
 async function api(path) {
-  const response = await fetch(path, { cache: "no-store" });
+  const response = await fetch(apiUrl(path), { cache: "no-store" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body?.error?.message || `HTTP ${response.status}`);
   return body;
@@ -97,7 +102,7 @@ function renderList(entries) {
       const image = document.createElement("img");
       image.loading = "lazy";
       image.alt = `${formatDate(entry.journal_date)} 대표 사진`;
-      image.src = entry.photo.thumbnail_url;
+      image.src = apiUrl(entry.photo.thumbnail_url);
       card.append(image);
     }
     const content = document.createElement("div");
@@ -143,7 +148,7 @@ function renderDetail(entry) {
   addMeasurements(values, entry.measurements);
   const cover = element("detailPhoto");
   cover.hidden = !entry.photo;
-  if (entry.photo) element("detailPhotoImage").src = entry.photo.url;
+  if (entry.photo) element("detailPhotoImage").src = apiUrl(entry.photo.url);
   const crops = element("detailCropSections");
   crops.replaceChildren();
   for (const section of entry.sections) {
@@ -162,13 +167,13 @@ function renderDetail(entry) {
       gallery.className = "gallery";
       for (const photo of section.photos) {
         const link = document.createElement("a");
-        link.href = photo.url;
+        link.href = apiUrl(photo.url);
         link.target = "_blank";
         link.rel = "noreferrer";
         const image = document.createElement("img");
         image.loading = "lazy";
         image.alt = `${section.crop_name} 기록 사진`;
-        image.src = photo.thumbnail_url;
+        image.src = apiUrl(photo.thumbnail_url);
         link.append(image);
         gallery.append(link);
       }

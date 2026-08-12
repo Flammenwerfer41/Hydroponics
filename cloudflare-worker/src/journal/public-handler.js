@@ -14,6 +14,9 @@ function json(body, status = 200, headers = {}) {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
       ...headers
     }
   });
@@ -53,12 +56,21 @@ async function photoResponse(bucket, metadata, request) {
       "Content-Type": metadata.mime_type,
       "Content-Length": String(object.size),
       "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff"
+      "X-Content-Type-Options": "nosniff",
+      "Access-Control-Allow-Origin": "*"
     }
   });
 }
 
 export async function handlePublicJournal(request, environment, path) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400"
+    } });
+  }
   if (request.method !== "GET") {
     return error("method_not_allowed", "Only GET is supported", 405);
   }

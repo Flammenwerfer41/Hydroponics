@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://hydroponics-jma-weather.flammenwerfer41.workers.dev; connect-src 'self' https://hydroponics-jma-weather.flammenwerfer41.workers.dev; font-src 'self'; upgrade-insecure-requests">
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1714">
@@ -52,6 +52,7 @@
     </main>
     <footer>개인 수경재배 환경 기록 · Asia/Tokyo</footer>
   </div>
-  <script type="module" src="journal.js?v=1"></script>
+  <script src="../weather-config.js"></script>
+  <script type="module" src="journal.js?v=2"></script>
 </body>
 </html>
