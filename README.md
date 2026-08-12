@@ -14,7 +14,23 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - Integrations: Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
 - Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
 - Emergency mirror: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
-- Features: Cloudflare 단독 기록, Cloudflare 모니터링·관리 대시보드, OTA
+- Features: Cloudflare 단독 기록, 공개·관리 대시보드, 재배일지와 사진,
+  JMA 실측 보관, Discord 경고, SwitchBot 제어, D1/R2 백업, OTA
+
+## 현재 운영 기준
+
+- 운영 펌웨어: v8.4.0
+- 센서 주기: 2분
+- 원격 측정 저장소: Cloudflare D1
+- 장애 시 로컬 보존: LittleFS 14일 링버퍼
+- 조명 상태·전력·스케줄과 에어컨 명령: Cloudflare Worker → SwitchBot
+- 기상 자료: JMA 실측 장기 보관, 도쿄지방 최신 예보 1건 캐시
+- 관리자 인증: Cloudflare Access
+- 사진과 정기 백업: Cloudflare R2
+- 비상용 정적 화면: GitHub Pages와 GitLab Pages
+
+ThingSpeak 송신과 조회는 2026-08-09부터 종료되었습니다. 과거 데이터는 D1으로
+이관되었으며, ESP32·대시보드·일일 보고서는 현재 Cloudflare 경로만 사용합니다.
 
 ## 처음 설정
 
@@ -76,6 +92,23 @@ OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. �
 승인 상태는 `/sensor_ack_v1.bin` 사이드카에 슬롯당 1바이트로 저장합니다. 따라서
 Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다.
 
+## 펌웨어 구조
+
+v8.4.0의 3차 리팩터링은 기능과 저장 형식을 바꾸지 않고 책임을 다음처럼
+분리했습니다.
+
+- `src/main.cpp`: 초기화 순서와 메인 루프만 조정
+- `include/firmware_config.h`: 핀, 주기, 재시도 간격과 펌웨어 버전
+- `src/sensor_manager.cpp`: BME280·DS18B20 초기화와 독립 측정
+- `src/measurement_controller.cpp`: 2분 주기, 실패 정책과 측정 레코드 생성
+- `src/record_codec.cpp`: LittleFS 레코드와 Cloudflare JSON 직렬화
+- `src/ring_storage.cpp`: 14일 링버퍼와 승인 사이드카
+- `src/cloud_upload.cpp`: 실시간 큐, 벌크 복구와 백오프
+- `src/network_manager.cpp`: Wi-Fi, NTP, ArduinoOTA와 네트워크 서비스
+
+`main.cpp`에서 각 책임을 분리했기 때문에 향후 센서가 늘어나도 저장·전송·OTA
+로직을 동시에 수정하지 않고 단계별로 확장할 수 있습니다.
+
 ## v8.4.0 클라우드 제어 구조
 
 ESP32는 BME280·DS18B20과 자체 Wi-Fi 상태만 수집합니다. 조명 상태·전력 조회,
@@ -99,7 +132,27 @@ Cloudflare API와 자격 증명 등록 방법은
 D1/R2 백업과 복구 훈련은 [`cloudflare-worker/BACKUP_RECOVERY.md`](cloudflare-worker/BACKUP_RECOVERY.md)를
 참조하십시오. 대시보드 배포와 롤백은
 [`cloudflare-worker/DASHBOARD_DEPLOYMENT.md`](cloudflare-worker/DASHBOARD_DEPLOYMENT.md)에
-정리되어 있습니다.
+정리되어 있습니다. 재배일지와 사진은
+[`cloudflare-worker/JOURNAL.md`](cloudflare-worker/JOURNAL.md), JMA 보관은
+[`cloudflare-worker/WEATHER_ARCHIVE.md`](cloudflare-worker/WEATHER_ARCHIVE.md), 경고 규칙과
+Discord 전송은 [`cloudflare-worker/ALERTS.md`](cloudflare-worker/ALERTS.md)를 참조하십시오.
+
+## 다음 센서 확장
+
+배송 예정인 SCD40(CO₂)과 VEML7700(조도)은 하드웨어 도착 후 다음 순서로
+추가합니다.
+
+1. 실제 브레이크아웃 보드의 3.3V 전원 호환성과 I2C 풀업 구성을 확인합니다.
+2. 기존 SDA 18·SCL 19 버스에서 BME280과 함께 주소 충돌 및 장시간 안정성을
+   검증합니다.
+3. 센서 드라이버와 측정 품질만 먼저 추가하고 저장·전송 규격 변경은 별도
+   커밋으로 진행합니다.
+4. D1 계약과 대시보드에 `co2_concentration`과 `illuminance`를 추가합니다.
+5. 조도에서 PPFD로의 변환은 식물등과 실제 설치 위치에서 얻은 보정값이 준비된
+   뒤 파생 지표로 도입합니다.
+
+현재 ESP32, BME280, DS18B20, 수직 타워와 SwitchBot 구성은 유지합니다. 새 센서가
+도착하기 전에는 핀 연결이나 운영 펌웨어의 측정 규격을 미리 바꾸지 않습니다.
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
 

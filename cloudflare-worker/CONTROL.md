@@ -34,14 +34,18 @@ The air conditioner is an infrared virtual device. A successful API response mea
 the command was accepted for transmission, not that the appliance confirmed its
 state. The UI therefore labels AC information as the last command.
 
-## Cutover
+## Current production state
 
-1. Apply D1 migration `0003_actuator_control.sql`.
-2. Configure the six Worker secrets.
-3. Protect `https://hydroponics-jma-weather.flammenwerfer41.workers.dev/admin/*`
-   with Cloudflare Access and allow only the administrator identity.
-4. Deploy and confirm telemetry plus manual commands.
-5. Disable the old 07:00/21:00 schedule in the SwitchBot app.
-6. Install firmware v8.3.0 later; OTA is intentionally a separate operation.
+The D1 migration, six Worker secrets and Cloudflare Access policy are active. The
+Worker is the source of truth for the 07:00/21:00 JST grow-light schedule; the old
+SwitchBot-app schedule is disabled. Firmware v8.4.0 no longer polls SwitchBot or
+uploads light telemetry, so actuator observation and control are isolated from
+sensor ingestion.
 
-Keep the SwitchBot app installed for IR remote re-registration and account recovery.
+Keep the SwitchBot app installed as a recovery path for account access, IR remote
+re-registration and manual control during a Worker outage. The air conditioner
+remains manual-only, and no temperature-triggered automatic stop policy is enabled.
+An Access outage blocks the management UI but does not stop the scheduled Worker.
+If the Worker control path itself is unavailable, sensor measurement and the
+LittleFS queue continue, but light scheduling and remote commands pause until the
+Worker path recovers or the SwitchBot app is used.
