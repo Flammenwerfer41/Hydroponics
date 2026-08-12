@@ -7,6 +7,7 @@ import {
 } from "./history/handler.js";
 import { handleAdmin, handlePublicLight } from "./control/handler.js";
 import { handleJournalAdmin } from "./journal/handler.js";
+import { handlePublicJournal } from "./journal/public-handler.js";
 import { pollAndReconcile } from "./control/service.js";
 
 const JMA_BASE_URL = "https://www.jma.go.jp/bosai/amedas/data";
@@ -390,6 +391,11 @@ async function routeRequest(request, environment, context) {
     }
     if (path.startsWith("/admin/api/")) {
       return handleAdmin(request, environment, path);
+    }
+    if (path === "/api/journal" || path.startsWith("/api/journal/")) {
+      const limited = await publicApiRateLimit(request, environment);
+      if (limited) return limited;
+      return handlePublicJournal(request, environment, path);
     }
     if (!path.startsWith("/v1/")) {
       if (environment.ASSETS) return environment.ASSETS.fetch(request);

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; upgrade-insecure-requests">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1714">
+  <meta name="description" content="수경재배 과정과 작물별 기록을 날짜순으로 보는 공개 재배일지">
+  <title>Hydroponics Journal</title>
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="journal.css?v=1">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div><p class="eyebrow">HYDROPONICS · JOURNAL</p><h1>재배일지</h1><p>공개된 재배 기록을 날짜와 작물별로 살펴봅니다.</p></div>
+      <a class="dashboard-link" href="../">대시보드</a>
+    </header>
+
+    <div class="notice" id="notice" role="status" aria-live="polite">재배일지를 불러오는 중입니다.</div>
+
+    <main>
+      <section id="listView">
+        <div class="toolbar panel">
+          <label>연도<select id="filterYear"></select></label>
+          <label>월<select id="filterMonth"></select></label>
+          <label>날짜<select id="filterDay"><option value="">전체</option></select></label>
+          <label>작물<select id="filterCrop"><option value="">전체 작물</option></select></label>
+          <label>활동<select id="filterTag"><option value="">전체 활동</option></select></label>
+        </div>
+        <div class="journal-list" id="journalList"></div>
+      </section>
+
+      <section id="detailView" hidden>
+        <div class="detail-heading">
+          <button type="button" id="backToList">← 목록</button>
+          <div><p class="eyebrow">DAILY RECORD</p><h2 id="detailDate"></h2></div>
+        </div>
+        <figure class="cover" id="detailPhoto" hidden><img id="detailPhotoImage" alt="재배일지 대표 사진"></figure>
+        <section class="panel detail-panel">
+          <p class="updated" id="detailUpdatedAt"></p>
+          <p class="common-note" id="detailCommonNote"></p>
+          <div class="values" id="detailValues"></div>
+        </section>
+        <section class="panel detail-panel">
+          <p class="eyebrow">CROP RECORDS</p><h2>작물별 기록</h2>
+          <div class="crop-records" id="detailCropSections"></div>
+          <p class="empty" id="detailEmptyCrops">작물별 기록이 없습니다.</p>
+        </section>
+      </section>
+    </main>
+    <footer>개인 수경재배 환경 기록 · Asia/Tokyo</footer>
+  </div>
+  <script type="module" src="journal.js?v=1"></script>
+</body>
+</html>

@@ -32,7 +32,7 @@ function valueMap(valueRows) {
   return output;
 }
 
-function photoMetadata(row) {
+function photoMetadata(row, routePrefix = "/admin/api/journal") {
   if (!row?.photo_mime_type) return null;
   return {
     mime_type: row.photo_mime_type,
@@ -40,12 +40,12 @@ function photoMetadata(row) {
     width: row.photo_width,
     height: row.photo_height,
     updated_at: row.photo_updated_at,
-    url: `/admin/api/journal/${row.id}/photo`,
-    thumbnail_url: `/admin/api/journal/${row.id}/photo?variant=thumbnail`
+    url: `${routePrefix}/${row.id}/photo`,
+    thumbnail_url: `${routePrefix}/${row.id}/photo?variant=thumbnail`
   };
 }
 
-function cropPhotoMetadata(row, journalId) {
+function cropPhotoMetadata(row, journalId, routePrefix = "/admin/api/journal") {
   return {
     id: row.id,
     crop_id: row.crop_id,
@@ -55,8 +55,8 @@ function cropPhotoMetadata(row, journalId) {
     height: row.height,
     sort_order: row.sort_order,
     updated_at: row.updated_at,
-    url: `/admin/api/journal/${journalId}/crops/${row.crop_id}/photos/${row.id}`,
-    thumbnail_url: `/admin/api/journal/${journalId}/crops/${row.crop_id}/photos/${row.id}?variant=thumbnail`
+    url: `${routePrefix}/${journalId}/crops/${row.crop_id}/photos/${row.id}`,
+    thumbnail_url: `${routePrefix}/${journalId}/crops/${row.crop_id}/photos/${row.id}?variant=thumbnail`
   };
 }
 
@@ -86,7 +86,36 @@ export async function journalCatalog(database) {
   return { crops: rows(cropResult), tags: rows(tagResult), periods: rows(periodResult) };
 }
 
-export async function listJournalDays(database, query) {
+export async function publicJournalCatalog(database) {
+  const [cropResult, tagResult, periodResult] = await Promise.all([
+    database.prepare(`
+      SELECT DISTINCT c.id, c.common_name, c.scientific_name, c.cultivar
+      FROM crops c JOIN journal_sections js ON js.crop_id = c.id
+      JOIN journal_days jd ON jd.id = js.journal_day_id
+      WHERE jd.site_id = ?1 AND jd.visibility = 'public' AND jd.deleted_at IS NULL
+      ORDER BY c.common_name
+    `).bind(SITE_ID).all(),
+    database.prepare(`
+      SELECT DISTINCT jt.id, jt.name, jt.slug, jt.kind, jt.color
+      FROM journal_tags jt JOIN journal_section_tags jst ON jst.tag_id = jt.id
+      JOIN journal_sections js ON js.id = jst.journal_section_id
+      JOIN journal_days jd ON jd.id = js.journal_day_id
+      WHERE jd.site_id = ?1 AND jd.visibility = 'public' AND jd.deleted_at IS NULL
+      ORDER BY jt.kind, jt.name
+    `).bind(SITE_ID).all(),
+    database.prepare(`
+      SELECT substr(journal_date, 1, 4) AS year,
+        substr(journal_date, 6, 2) AS month, COUNT(*) AS count
+      FROM journal_days
+      WHERE site_id = ?1 AND visibility = 'public' AND deleted_at IS NULL
+      GROUP BY year, month
+      ORDER BY year DESC, month DESC
+    `).bind(SITE_ID).all()
+  ]);
+  return { crops: rows(cropResult), tags: rows(tagResult), periods: rows(periodResult) };
+}
+
+async function listJournalDaysWithVisibility(database, query, visibility = null) {
   const [from, to] = dateRange(query);
   const result = await database.prepare(`
     SELECT jd.id, jd.journal_date, jd.common_note, jd.visibility, jd.revision,
@@ -116,10 +145,11 @@ export async function listJournalDays(database, query) {
         JOIN journal_section_tags selected_tag ON selected_tag.journal_section_id = tag_section.id
         WHERE tag_section.journal_day_id = jd.id AND selected_tag.tag_id = ?5
       ))
+      AND (?6 IS NULL OR jd.visibility = ?6)
     GROUP BY jd.id
     ORDER BY jd.journal_date DESC, jd.updated_at DESC
-    LIMIT ?6
-  `).bind(SITE_ID, from, to, query.cropId, query.tagId, query.limit).all();
+    LIMIT ?7
+  `).bind(SITE_ID, from, to, query.cropId, query.tagId, visibility, query.limit).all();
   return rows(result).map((row) => {
     const photo = photoMetadata(row);
     const {
@@ -136,6 +166,31 @@ export async function listJournalDays(database, query) {
       photo
     };
   });
+}
+
+export async function listJournalDays(database, query) {
+  return listJournalDaysWithVisibility(database, query);
+}
+
+export async function listPublicJournalDays(database, query) {
+  const entries = await listJournalDaysWithVisibility(database, query, "public");
+  return entries.map((entry) => ({
+    id: entry.id,
+    journal_date: entry.journal_date,
+    common_note: entry.common_note,
+    updated_at: entry.updated_at,
+    crop_names: entry.crop_names,
+    section_count: entry.section_count,
+    solution_ph: entry.solution_ph,
+    electrical_conductivity: entry.electrical_conductivity,
+    solution_added_volume: entry.solution_added_volume,
+    solution_added_liquid_type: entry.solution_added_liquid_type,
+    photo: entry.photo ? {
+      ...entry.photo,
+      url: `/api/journal/${entry.id}/photo`,
+      thumbnail_url: `/api/journal/${entry.id}/photo?variant=thumbnail`
+    } : null
+  }));
 }
 
 export async function journalDay(database, id) {
@@ -198,6 +253,63 @@ export async function journalDay(database, id) {
       photos: photosByCrop.get(section.crop_id) ?? []
     }))
   };
+}
+
+export async function publicJournalDay(database, id) {
+  const visibility = await database.prepare(`
+    SELECT visibility FROM journal_days
+    WHERE id = ?1 AND site_id = ?2 AND deleted_at IS NULL
+  `).bind(id, SITE_ID).first();
+  if (visibility?.visibility !== "public") return null;
+  const entry = await journalDay(database, id);
+  if (!entry) return null;
+  return {
+    id: entry.id,
+    journal_date: entry.journal_date,
+    common_note: entry.common_note,
+    updated_at: entry.updated_at,
+    photo: entry.photo ? {
+      ...entry.photo,
+      url: `/api/journal/${entry.id}/photo`,
+      thumbnail_url: `/api/journal/${entry.id}/photo?variant=thumbnail`
+    } : null,
+    measurements: Object.fromEntries(Object.entries(entry.measurements).map(([metric, value]) => [metric, {
+      value: value.value,
+      unit: value.unit,
+      qualifier: value.qualifier,
+      measured_at: value.measured_at
+    }])),
+    sections: entry.sections.map((section) => ({
+      crop_id: section.crop_id,
+      crop_name: section.crop_name,
+      title: section.title,
+      body: section.body,
+      tags: section.tags,
+      photos: section.photos.map((photo) => ({
+        ...photo,
+        url: `/api/journal/${entry.id}/crops/${section.crop_id}/photos/${photo.id}`,
+        thumbnail_url: `/api/journal/${entry.id}/crops/${section.crop_id}/photos/${photo.id}?variant=thumbnail`
+      }))
+    }))
+  };
+}
+
+export async function publicJournalPhotoObject(database, id) {
+  return database.prepare(`
+    SELECT jp.full_object_key, jp.thumbnail_object_key, jp.mime_type
+    FROM journal_photos jp JOIN journal_days jd ON jd.id = jp.journal_day_id
+    WHERE jp.journal_day_id = ?1 AND jd.site_id = ?2
+      AND jd.visibility = 'public' AND jd.deleted_at IS NULL
+  `).bind(id, SITE_ID).first();
+}
+
+export async function publicJournalCropPhotoObject(database, journalId, cropId, photoId) {
+  return database.prepare(`
+    SELECT jcp.full_object_key, jcp.thumbnail_object_key, jcp.mime_type
+    FROM journal_crop_photos jcp JOIN journal_days jd ON jd.id = jcp.journal_day_id
+    WHERE jcp.id = ?1 AND jcp.journal_day_id = ?2 AND jcp.crop_id = ?3
+      AND jd.site_id = ?4 AND jd.visibility = 'public' AND jd.deleted_at IS NULL
+  `).bind(photoId, journalId, cropId, SITE_ID).first();
 }
 
 async function validateReferences(database, input) {

@@ -7,6 +7,7 @@ import {
   parseJournalListQuery
 } from "../src/journal/contract.js";
 import { parsePhotoUpload } from "../src/journal/photo.js";
+import { publicJournalDay } from "../src/journal/store.js";
 
 test("normalizes a daily journal with crop sections and manual values", () => {
   const result = parseJournalInput({
@@ -140,4 +141,67 @@ test("rejects unsupported and oversized journal photos", () => {
     () => parsePhotoUpload(oversized),
     (error) => error instanceof JournalRequestError && error.status === 413
   );
+});
+
+function publicJournalDatabase(visibility = "public") {
+  return {
+    prepare(sql) {
+      return {
+        bind() {
+          if (sql.includes("SELECT visibility FROM journal_days")) {
+            return { async first() { return { visibility }; } };
+          }
+          if (sql.includes("SELECT id, site_id, zone_id")) {
+            return { async first() { return {
+              id: "11111111-1111-4111-8111-111111111111",
+              site_id: "home-lab",
+              zone_id: "tower-01",
+              journal_date: "2026-08-10",
+              common_note: "양액 확인",
+              visibility: "public",
+              revision: 3,
+              created_by: "owner@example.com",
+              created_at: "2026-08-10T01:00:00Z",
+              updated_at: "2026-08-10T02:00:00Z"
+            }; } };
+          }
+          if (sql.includes("FROM journal_day_values")) {
+            return { async all() { return { results: [{
+              metric: "solution_ph", value: 6.2, unit: "pH", source: "manual",
+              qualifier: null, measured_at: "2026-08-10T12:00:00+09:00"
+            }] }; } };
+          }
+          if (sql.includes("FROM journal_sections js JOIN crops")) {
+            return { async all() { return { results: [{
+              id: "section-secret", crop_id: "crop-basil", crop_name: "바질",
+              title: "관찰", body: "새잎", sort_order: 0,
+              created_at: "private", updated_at: "private"
+            }] }; } };
+          }
+          if (sql.includes("FROM journal_section_tags")) {
+            return { async all() { return { results: [] }; } };
+          }
+          if (sql.includes("FROM journal_photos")) {
+            return { async first() { return null; } };
+          }
+          if (sql.includes("FROM journal_crop_photos")) {
+            return { async all() { return { results: [] }; } };
+          }
+          throw new Error(`Unexpected query: ${sql}`);
+        }
+      };
+    }
+  };
+}
+
+test("public journal strips administrative identity and hides private days", async () => {
+  assert.equal(await publicJournalDay(publicJournalDatabase("private"), "id"), null);
+  const entry = await publicJournalDay(publicJournalDatabase(), "id");
+  assert.equal(entry.common_note, "양액 확인");
+  assert.equal(entry.sections[0].crop_name, "바질");
+  assert.equal(entry.measurements.solution_ph.source, undefined);
+  assert.equal(entry.created_by, undefined);
+  assert.equal(entry.revision, undefined);
+  assert.equal(entry.site_id, undefined);
+  assert.equal(entry.sections[0].id, undefined);
 });
