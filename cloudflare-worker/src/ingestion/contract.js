@@ -15,6 +15,8 @@ export const METRICS = Object.freeze({
   pressure: Object.freeze({ unit: "hPa", minimum: 300, maximum: 1200 }),
   wifi_rssi: Object.freeze({ unit: "dBm", minimum: -127, maximum: 0 }),
   water_temperature: Object.freeze({ unit: "degC", minimum: -55, maximum: 125 }),
+  co2_concentration: Object.freeze({ unit: "ppm", minimum: 250, maximum: 40000, integer: true }),
+  illuminance: Object.freeze({ unit: "lux", minimum: 0, maximum: 200000 }),
   light_status: Object.freeze({ unit: "state", minimum: 0, maximum: 1, integer: true }),
   light_power: Object.freeze({ unit: "W", minimum: 0, maximum: 5000 }),
   light_uptime: Object.freeze({ unit: "min", minimum: 0, maximum: 1440 })
@@ -164,4 +166,3 @@ export function normalizeReading(input, now = new Date()) {
     values: normalizedValues
   };
 }
-

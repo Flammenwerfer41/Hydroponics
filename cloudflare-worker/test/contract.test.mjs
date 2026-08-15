@@ -15,13 +15,15 @@ function sampleReading() {
     boot_id: "boot0001",
     sequence: 42,
     measured_at: "2026-08-09T09:59:00+09:00",
-    firmware_version: "8.1.0",
+    firmware_version: "8.5.0",
     values: {
       air_temperature: 25.3,
       humidity: 61.2,
       pressure: 1007.8,
       wifi_rssi: -57,
       water_temperature: 24.6,
+      co2_concentration: 742,
+      illuminance: 18432.5,
       light_status: true,
       light_power: 73.7,
       light_uptime: 180
@@ -35,7 +37,15 @@ test("normalizes all current metrics and their units", () => {
 
   assert.equal(result.readingId, "boot0001:42");
   assert.equal(result.measuredAt, "2026-08-09T00:59:00.000Z");
-  assert.equal(result.values.length, 8);
+  assert.equal(result.values.length, 10);
+  assert.deepEqual(
+    result.values.find(({ metric }) => metric === "co2_concentration"),
+    { metric: "co2_concentration", value: 742, unit: "ppm", quality: "valid", diagnostic: null }
+  );
+  assert.deepEqual(
+    result.values.find(({ metric }) => metric === "illuminance"),
+    { metric: "illuminance", value: 18432.5, unit: "lux", quality: "valid", diagnostic: null }
+  );
   assert.deepEqual(
     result.values.find(({ metric }) => metric === "light_status"),
     { metric: "light_status", value: 1, unit: "state", quality: "valid", diagnostic: null }
@@ -69,6 +79,22 @@ test("marks an out-of-range field invalid without rejecting the reading", () => 
   const result = normalizeReading(input, NOW);
   assert.equal(result.values.find(({ metric }) => metric === "humidity").value, 140);
   assert.equal(result.values.find(({ metric }) => metric === "humidity").quality, "invalid");
+});
+
+test("marks impossible CO2 and illuminance values invalid", () => {
+  const input = sampleReading();
+  input.values.co2_concentration = 100;
+  input.values.illuminance = 250000;
+
+  const result = normalizeReading(input, NOW);
+  assert.equal(
+    result.values.find(({ metric }) => metric === "co2_concentration").quality,
+    "invalid"
+  );
+  assert.equal(
+    result.values.find(({ metric }) => metric === "illuminance").quality,
+    "invalid"
+  );
 });
 
 test("accepts delayed replay data", () => {

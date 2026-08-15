@@ -136,6 +136,18 @@ test("maps a JST calendar date to exact UTC boundaries", () => {
   assert.equal(query.limit, 720);
 });
 
+test("accepts CO2 and illuminance history metrics", () => {
+  const query = parseHistoryQuery(
+    new URL(
+      "https://worker.example/v1/readings?date=2026-08-09" +
+      "&metrics=co2_concentration,illuminance"
+    ),
+    "raw",
+    NOW
+  );
+  assert.deepEqual(query.metrics, ["co2_concentration", "illuminance"]);
+});
+
 test("rejects oversized raw ranges and unknown parameters", () => {
   assert.throws(
     () => parseHistoryQuery(

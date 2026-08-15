@@ -113,11 +113,13 @@ function reading(overrides = {}) {
     boot_id: "boot0001",
     sequence: 42,
     measured_at: "2026-08-08T09:59:00+09:00",
-    firmware_version: "8.1.0",
+    firmware_version: "8.5.0",
     values: {
       air_temperature: 25.3,
       humidity: 61.2,
-      water_temperature: 24.6
+      water_temperature: 24.6,
+      co2_concentration: 742,
+      illuminance: 18432.5
     },
     ...overrides
   };
@@ -150,7 +152,13 @@ test("rejects a device with an unknown credential", async () => {
 test("stores a partial reading without discarding valid fields", async () => {
   const env = await environment();
   const input = reading({
-    values: { air_temperature: 25.3, humidity: null, water_temperature: 24.6 },
+    values: {
+      air_temperature: 25.3,
+      humidity: null,
+      water_temperature: 24.6,
+      co2_concentration: 742,
+      illuminance: 18432.5
+    },
     quality: { humidity: "missing" },
     diagnostics: { humidity: "bme280_read_failed" }
   });
@@ -160,12 +168,49 @@ test("stores a partial reading without discarding valid fields", async () => {
   assert.equal(response.status, 201);
   assert.equal(result.status, "accepted");
   assert.equal(env.HYDROPONICS_DB.values.get("esp32-01|boot0001:42|air_temperature").quality, "valid");
+  assert.deepEqual(env.HYDROPONICS_DB.values.get("esp32-01|boot0001:42|co2_concentration"), {
+    value: 742,
+    unit: "ppm",
+    quality: "valid",
+    diagnostic: null
+  });
+  assert.deepEqual(env.HYDROPONICS_DB.values.get("esp32-01|boot0001:42|illuminance"), {
+    value: 18432.5,
+    unit: "lux",
+    quality: "valid",
+    diagnostic: null
+  });
   assert.deepEqual(env.HYDROPONICS_DB.values.get("esp32-01|boot0001:42|humidity"), {
     value: null,
     unit: "percent",
     quality: "missing",
     diagnostic: "bme280_read_failed"
   });
+});
+
+test("stores missing new sensors without discarding established measurements", async () => {
+  const env = await environment();
+  const input = reading({
+    values: {
+      air_temperature: 25.3,
+      humidity: 61.2,
+      water_temperature: 24.6,
+      co2_concentration: null,
+      illuminance: null
+    }
+  });
+  const response = await worker.fetch(post("/v1/readings", input), env, context);
+
+  assert.equal(response.status, 201);
+  assert.equal(env.HYDROPONICS_DB.values.get(
+    "esp32-01|boot0001:42|co2_concentration"
+  ).quality, "missing");
+  assert.equal(env.HYDROPONICS_DB.values.get(
+    "esp32-01|boot0001:42|illuminance"
+  ).quality, "missing");
+  assert.equal(env.HYDROPONICS_DB.values.get(
+    "esp32-01|boot0001:42|water_temperature"
+  ).quality, "valid");
 });
 
 test("distinguishes an idempotent replay from a changed-payload conflict", async () => {
