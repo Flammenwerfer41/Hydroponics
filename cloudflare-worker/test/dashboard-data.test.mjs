@@ -6,6 +6,7 @@ import {
   historyDomain,
   mergeTimeSeries,
   niceBounds,
+  parseAggregateHistory,
   parseRawHistory
 } from "../../docs/dashboard/data.js";
 
@@ -23,13 +24,14 @@ test("keeps the day comparison domain fixed to a JST calendar day", () => {
   assert.equal(domain.todayStart - domain.previousStart, 24 * 60 * 60 * 1000);
 });
 
-test("parses partial sensor history and merges overlapping updates", () => {
+test("parses partial and newly added sensor history and merges overlapping updates", () => {
   const parsed = parseRawHistory([{
     measured_at: "2026-08-12T05:30:00Z",
-    values: { air_temperature: 26.4, humidity: null }
+    values: { air_temperature: 26.4, humidity: null, co2_concentration: 842 }
   }]);
   assert.equal(parsed[0].temperature, 26.4);
   assert.equal(parsed[0].humidity, null);
+  assert.equal(parsed[0].co2Concentration, 842);
   const merged = mergeTimeSeries(
     [{ time: 1, value: "old" }],
     [{ time: 1, value: "new" }, { time: 2, value: "next" }],
@@ -37,6 +39,14 @@ test("parses partial sensor history and merges overlapping updates", () => {
     2
   );
   assert.deepEqual(merged, [{ time: 1, value: "new" }, { time: 2, value: "next" }]);
+});
+
+test("parses hourly CO2 concentration averages", () => {
+  const parsed = parseAggregateHistory([{
+    start: "2026-08-12T05:00:00Z",
+    metrics: { co2_concentration: { mean: 915.5 } }
+  }]);
+  assert.equal(parsed[0].co2Concentration, 915.5);
 });
 
 test("keeps adaptive humidity bounds inside physical limits", () => {

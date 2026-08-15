@@ -6,11 +6,11 @@
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1714">
-  <meta name="description" content="ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드" data-i18n-content="meta.description">
+  <meta name="description" content="ESP32 수경재배 환경 센서의 온도, 습도, 수온, 이산화탄소와 조명 상태를 확인하는 대시보드" data-i18n-content="meta.description">
   <title>Hydroponics Monitor</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="tokens.css?v=20260812-refactor1">
-  <link rel="stylesheet" href="styles.css?v=20260812-refactor1">
+  <link rel="stylesheet" href="tokens.css?v=20260815-co2-chart">
+  <link rel="stylesheet" href="styles.css?v=20260815-co2-chart">
   <link rel="stylesheet" href="scene.css?v=20260809-performance">
 </head>
 <body>
@@ -249,20 +249,6 @@
           <article class="chart-card">
             <div class="chart-header">
               <div>
-                <span class="chart-label pressure-text" data-i18n="metric.pressure">기압</span>
-                <strong id="pressureSummary">--</strong>
-              </div>
-              <div class="chart-stats" id="pressureStats"></div>
-            </div>
-            <div class="chart-wrap">
-              <canvas id="pressureChart" aria-label="기압 변화 그래프" data-i18n-aria-label="chart.pressureAria"></canvas>
-              <div class="chart-tooltip" id="pressureTooltip" hidden></div>
-            </div>
-          </article>
-
-          <article class="chart-card">
-            <div class="chart-header">
-              <div>
                 <span class="chart-label water-text" data-i18n="metric.waterTemperature">수온</span>
                 <strong id="waterTempSummary">--</strong>
               </div>
@@ -273,6 +259,35 @@
               <div class="chart-tooltip" id="waterTemperatureTooltip" hidden></div>
             </div>
           </article>
+
+          <article class="chart-card">
+            <div class="chart-header">
+              <div>
+                <span class="chart-label co2-text" data-i18n="metric.co2">CO₂</span>
+                <strong id="co2Summary">--</strong>
+              </div>
+              <div class="chart-stats" id="co2Stats"></div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="co2Chart" aria-label="이산화탄소 농도 변화 그래프" data-i18n-aria-label="chart.co2Aria"></canvas>
+              <div class="chart-tooltip" id="co2Tooltip" hidden></div>
+            </div>
+          </article>
+
+          <details class="chart-disclosure" id="pressureDisclosure">
+            <summary data-i18n-aria-label="chart.pressureToggle">
+              <span class="chart-label pressure-text" data-i18n="metric.pressure">기압</span>
+              <strong id="pressureSummary">--</strong>
+              <span class="chart-stats" id="pressureStats"></span>
+              <span class="chart-disclosure-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="chart-disclosure-body">
+              <div class="chart-wrap">
+                <canvas id="pressureChart" aria-label="기압 변화 그래프" data-i18n-aria-label="chart.pressureAria"></canvas>
+                <div class="chart-tooltip" id="pressureTooltip" hidden></div>
+              </div>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -306,6 +321,6 @@
 
   <noscript data-i18n="noscript">이 대시보드는 Cloudflare 센서 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
   <script src="weather-config.js" defer></script>
-  <script type="module" src="app.js?v=20260812-refactor1"></script>
+  <script type="module" src="app.js?v=20260815-co2-chart"></script>
 </body>
 </html>

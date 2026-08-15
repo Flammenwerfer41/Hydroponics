@@ -54,7 +54,8 @@ export function parseRawHistory(readings) {
     temperature: finiteNumber(reading.values?.air_temperature),
     humidity: finiteNumber(reading.values?.humidity),
     pressure: finiteNumber(reading.values?.pressure),
-    waterTemperature: finiteNumber(reading.values?.water_temperature)
+    waterTemperature: finiteNumber(reading.values?.water_temperature),
+    co2Concentration: finiteNumber(reading.values?.co2_concentration)
   })).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
 }
 
@@ -64,7 +65,8 @@ export function parseAggregateHistory(buckets) {
     temperature: finiteNumber(bucket.metrics?.air_temperature?.mean),
     humidity: finiteNumber(bucket.metrics?.humidity?.mean),
     pressure: finiteNumber(bucket.metrics?.pressure?.mean),
-    waterTemperature: finiteNumber(bucket.metrics?.water_temperature?.mean)
+    waterTemperature: finiteNumber(bucket.metrics?.water_temperature?.mean),
+    co2Concentration: finiteNumber(bucket.metrics?.co2_concentration?.mean)
   })).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
 }
 

@@ -27,7 +27,8 @@ const HISTORY_METRICS = Object.freeze([
   "air_temperature",
   "humidity",
   "pressure",
-  "water_temperature"
+  "water_temperature",
+  "co2_concentration"
 ]);
 const CURRENT_REFRESH_MS = 60_000;
 const CURRENT_LOOKBACK_RESULTS = 30;
@@ -45,7 +46,7 @@ const WEATHER_API_URL = String(
 
 const TRANSLATIONS = {
   ko: {
-    "meta.description": "ESP32 수경재배 환경 센서의 온도, 습도, 기압과 조명 상태를 확인하는 대시보드",
+    "meta.description": "ESP32 수경재배 환경 센서의 온도, 습도, 수온, 이산화탄소와 조명 상태를 확인하는 대시보드",
     "language.selector": "표시 언어",
     "hero.copy": "수경재배 환경과 조명 상태를 원격으로 확인합니다.",
     "hero.admin": "로그인 · 관리",
@@ -74,6 +75,7 @@ const TRANSLATIONS = {
     "metric.humidity": "습도",
     "metric.pressure": "기압",
     "metric.waterTemperature": "수온",
+    "metric.co2": "CO₂",
     "metric.bme280": "BME280 센서",
     "scene.aria": "수경재배 시스템 개요",
     "scene.airKicker": "잎 주변 공기",
@@ -175,6 +177,9 @@ const TRANSLATIONS = {
     "chart.humidityAria": "습도 변화 그래프",
     "chart.pressureAria": "기압 변화 그래프",
     "chart.waterTemperatureAria": "수온 변화 그래프",
+    "chart.co2Aria": "이산화탄소 농도 변화 그래프",
+    "chart.pressureToggle": "기압 그래프 펼치기",
+    "chart.pressureCollapse": "기압 그래프 접기",
     "chart.average": "평균 {value} {unit}",
     "chart.stats": "최저 {minimum} · 최고 {maximum}",
     "chart.noData": "표시할 데이터가 없습니다.",
@@ -202,7 +207,7 @@ const TRANSLATIONS = {
     "runtime.hoursMinutes": "{hours}시간 {minutes}분"
   },
   ja: {
-    "meta.description": "ESP32水耕栽培環境センサーの温度・湿度・気圧と照明状態を確認するダッシュボード",
+    "meta.description": "ESP32水耕栽培環境センサーの温度・湿度・水温・二酸化炭素と照明状態を確認するダッシュボード",
     "language.selector": "表示言語",
     "hero.copy": "水耕栽培の環境と照明の状態を遠隔で確認できます。",
     "hero.admin": "ログイン・管理",
@@ -231,6 +236,7 @@ const TRANSLATIONS = {
     "metric.humidity": "湿度",
     "metric.pressure": "気圧",
     "metric.waterTemperature": "水温",
+    "metric.co2": "CO₂",
     "metric.bme280": "BME280センサー",
     "scene.aria": "水耕栽培システムの概要",
     "scene.airKicker": "葉の周辺環境",
@@ -332,6 +338,9 @@ const TRANSLATIONS = {
     "chart.humidityAria": "湿度変化グラフ",
     "chart.pressureAria": "気圧変化グラフ",
     "chart.waterTemperatureAria": "水温変化グラフ",
+    "chart.co2Aria": "二酸化炭素濃度変化グラフ",
+    "chart.pressureToggle": "気圧グラフを開く",
+    "chart.pressureCollapse": "気圧グラフを閉じる",
     "chart.average": "平均 {value} {unit}",
     "chart.stats": "最低 {minimum} · 最高 {maximum}",
     "chart.noData": "表示できるデータがありません。",
@@ -433,6 +442,18 @@ const CHART_CONFIG = {
     cssColor: "--water",
     minimumSpan: 10,
     step: 2.5
+  },
+  co2Concentration: {
+    canvasId: "co2Chart",
+    tooltipId: "co2Tooltip",
+    summaryId: "co2Summary",
+    statsId: "co2Stats",
+    field: "co2Concentration",
+    unit: "ppm",
+    decimals: 0,
+    cssColor: "--co2",
+    minimumSpan: 600,
+    step: 100
   }
 };
 
@@ -1690,10 +1711,20 @@ function translateStaticContent() {
   });
 }
 
+function updatePressureDisclosureLabel() {
+  const disclosure = element("pressureDisclosure");
+  if (!disclosure) return;
+  disclosure.querySelector("summary")?.setAttribute(
+    "aria-label",
+    t(disclosure.open ? "chart.pressureCollapse" : "chart.pressureToggle")
+  );
+}
+
 function setLanguage(language, persist = true) {
   state.language = language === "ja" ? "ja" : "ko";
   document.documentElement.lang = state.language;
   translateStaticContent();
+  updatePressureDisclosureLabel();
 
   document.querySelectorAll(".language-button").forEach((button) => {
     const active = button.dataset.language === state.language;
@@ -1746,6 +1777,11 @@ document.querySelectorAll(".range-button").forEach((button) => {
     if (!RANGE_CONFIG[range] || range === state.range) return;
     loadHistory(range).finally(() => scheduleHistory());
   });
+});
+
+element("pressureDisclosure")?.addEventListener("toggle", (event) => {
+  updatePressureDisclosureLabel();
+  if (event.currentTarget.open) state.charts.pressure?.draw();
 });
 
 document.addEventListener("visibilitychange", () => {

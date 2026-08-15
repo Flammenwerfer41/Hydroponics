@@ -20,6 +20,8 @@
   --pressure-soft: #f1edff;
   --water: #199ca4;
   --water-soft: #e3f7f7;
+  --co2: #d06a2d;
+  --co2-soft: #fff0e5;
   --water-bright: #72d8dc;
   --water-deep: #279aa7;
   --scene-sky-top: #edf8f2;
@@ -61,6 +63,8 @@
     --pressure-soft: #2b2342;
     --water: #64d2d5;
     --water-soft: #163638;
+    --co2: #f4a261;
+    --co2-soft: #3a281d;
     --water-bright: #4db9c0;
     --water-deep: #246f7d;
     --scene-sky-top: #132720;
