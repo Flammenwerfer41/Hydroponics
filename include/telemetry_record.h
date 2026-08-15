@@ -45,3 +45,11 @@ inline bool validWaterMeasurement(float temperature) {
          temperature != 85.0f &&
          temperature >= -55.0f && temperature <= 125.0f;
 }
+
+inline bool validCo2Measurement(uint16_t concentration) {
+  return concentration >= 250U && concentration <= 40000U;
+}
+
+inline bool validIlluminanceMeasurement(float illuminance) {
+  return isfinite(illuminance) && illuminance >= 0.0f && illuminance <= 200000.0f;
+}
