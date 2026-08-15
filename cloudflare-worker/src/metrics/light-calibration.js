@@ -4,18 +4,17 @@ export const LIGHT_CALIBRATION_PROFILES = Object.freeze([
   Object.freeze({
     profileId: "grow-light-01",
     version: 1,
-    effectiveFrom: "2026-08-15T00:00:00+09:00",
-    recordedOn: "2026-08-15",
-    method: "manufacturer_single_point",
-    referenceLux: 29518,
-    referencePpfd: 551,
-    source: "manufacturer specification",
-    note: "Estimated PPFD from one manufacturer reference point; not a PAR sensor measurement."
+    effectiveFrom: "2026-08-16T00:00:00+09:00",
+    recordedOn: "2026-08-16",
+    method: "fixed_lux_coefficient",
+    luxToPpfdCoefficient: 0.01732,
+    source: "user-provided grow-light conversion coefficient",
+    note: "Estimated PPFD from a grow-light-specific lux coefficient; not a PAR sensor measurement."
   })
 ]);
 
 function coefficient(profile) {
-  return profile.referencePpfd / profile.referenceLux;
+  return profile.luxToPpfdCoefficient;
 }
 
 export function lightCalibrationAt(measuredAt = new Date()) {
@@ -41,10 +40,6 @@ export function publicLightCalibration(profile = activeLightCalibration()) {
     effective_from: profile.effectiveFrom,
     recorded_on: profile.recordedOn,
     method: profile.method,
-    reference: {
-      illuminance_lux: profile.referenceLux,
-      ppfd_umol_m2_s: profile.referencePpfd
-    },
     coefficient: coefficient(profile),
     source: profile.source,
     note: profile.note,
