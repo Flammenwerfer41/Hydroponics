@@ -70,13 +70,17 @@ bool sameRecordIdentity(const SensorRecord& left, const SensorRecord& right) {
 bool validStoredRecord(const SensorRecord& record) {
   bool bme280Valid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
+  bool co2Valid = (record.flags & FLAG_SCD40_VALID) != 0;
+  bool illuminanceValid = (record.flags & FLAG_VEML7700_VALID) != 0;
   return record.timestamp >= firmware_config::VALID_EPOCH_MIN &&
          record.bootId != 0 &&
          record.firmwareVersion != 0 &&
-         (bme280Valid || waterValid) &&
+         (bme280Valid || waterValid || co2Valid || illuminanceValid) &&
          (!bme280Valid || validAirMeasurement(
            record.temperature, record.humidity, record.pressure)) &&
-         (!waterValid || validWaterMeasurement(record.waterTemperature));
+         (!waterValid || validWaterMeasurement(record.waterTemperature)) &&
+         (!co2Valid || validCo2Measurement(record.co2Concentration)) &&
+         (!illuminanceValid || validIlluminanceMeasurement(record.illuminance));
 }
 
 bool appendCloudflareReadingJson(String& payload, const SensorRecord& record) {
@@ -92,6 +96,8 @@ bool appendCloudflareReadingJson(String& payload, const SensorRecord& record) {
 
   bool bmeValid = (record.flags & FLAG_BME280_VALID) != 0;
   bool waterValid = (record.flags & FLAG_WATER_VALID) != 0;
+  bool co2Valid = (record.flags & FLAG_SCD40_VALID) != 0;
+  bool illuminanceValid = (record.flags & FLAG_VEML7700_VALID) != 0;
   bool rssiValid = record.rssi < 0;
 
   payload += F("{\"schema_version\":1,\"reading_id\":\"");
@@ -117,6 +123,11 @@ bool appendCloudflareReadingJson(String& payload, const SensorRecord& record) {
   else payload += F("null");
   payload += F(",\"water_temperature\":");
   appendJsonNumberOrNull(payload, record.waterTemperature, waterValid);
+  payload += F(",\"co2_concentration\":");
+  if (co2Valid) payload += String(record.co2Concentration);
+  else payload += F("null");
+  payload += F(",\"illuminance\":");
+  appendJsonNumberOrNull(payload, record.illuminance, illuminanceValid, 2);
   payload += F("}}");
   return true;
 }

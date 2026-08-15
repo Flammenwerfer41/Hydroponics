@@ -6,6 +6,8 @@
 enum RecordFlags : uint8_t {
   FLAG_BME280_VALID = 1 << 0,
   FLAG_WATER_VALID = 1 << 1,
+  FLAG_SCD40_VALID = 1 << 2,
+  FLAG_VEML7700_VALID = 1 << 3,
   // Bit 4 is retained in the on-flash record layout for v8 compatibility.
   FLAG_LEGACY_DESTINATION_OK = 1 << 4,
   FLAG_CLOUDFLARE_OK = 1 << 5
@@ -20,12 +22,15 @@ struct __attribute__((packed)) SensorRecord {
   float humidity;
   float pressure;
   float waterTemperature;
+  float illuminance;
+  uint16_t co2Concentration;
   int8_t rssi;
   uint8_t flags;
   uint8_t resetReason;
   uint8_t reserved;
+  uint16_t reserved2;
 };
-static_assert(sizeof(SensorRecord) == 40, "SensorRecord must remain 40 bytes");
+static_assert(sizeof(SensorRecord) == 48, "SensorRecord must remain 48 bytes");
 
 struct StoredRecordRef {
   SensorRecord record;

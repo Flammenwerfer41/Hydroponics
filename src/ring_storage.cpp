@@ -13,8 +13,8 @@ namespace {
 constexpr bool FORMAT_LITTLEFS_IF_MOUNT_FAILED = false;
 constexpr uint32_t RECORDS_PER_DAY = 24UL * 60UL / 2UL;
 constexpr uint32_t MAX_RECORDS = 14UL * RECORDS_PER_DAY;
-constexpr const char* LOG_FILE_PATH = "/sensor_ring_v8.bin";
-constexpr const char* ACK_FILE_PATH = "/sensor_ack_v1.bin";
+constexpr const char* LOG_FILE_PATH = "/sensor_ring_v9.bin";
+constexpr const char* ACK_FILE_PATH = "/sensor_ack_v2.bin";
 constexpr const char* LEGACY_LOG_FILE_PATH = "/sensor_ring.bin";
 constexpr const char* LEGACY_V2_LOG_FILE_PATH = "/sensor_ring_v2.bin";
 constexpr const char* LEGACY_V3_LOG_FILE_PATH = "/sensor_ring_v3.bin";
@@ -22,6 +22,8 @@ constexpr const char* LEGACY_V4_LOG_FILE_PATH = "/sensor_ring_v4.bin";
 constexpr const char* LEGACY_V5_LOG_FILE_PATH = "/sensor_ring_v5.bin";
 constexpr const char* LEGACY_V6_LOG_FILE_PATH = "/sensor_ring_v6.bin";
 constexpr const char* LEGACY_V7_LOG_FILE_PATH = "/sensor_ring_v7.bin";
+constexpr const char* LEGACY_V8_LOG_FILE_PATH = "/sensor_ring_v8.bin";
+constexpr const char* LEGACY_ACK_V1_FILE_PATH = "/sensor_ack_v1.bin";
 constexpr const char* LEGACY_LIGHT_EVENT_FILE_PATH = "/light_events.bin";
 constexpr size_t FILESYSTEM_SAFETY_MARGIN = 128UL * 1024UL;
 constexpr size_t RING_INITIALIZE_CHUNK_BYTES = 512UL;
@@ -86,6 +88,8 @@ bool removeLegacyStorageFiles() {
     LEGACY_V5_LOG_FILE_PATH,
     LEGACY_V6_LOG_FILE_PATH,
     LEGACY_V7_LOG_FILE_PATH,
+    LEGACY_V8_LOG_FILE_PATH,
+    LEGACY_ACK_V1_FILE_PATH,
     LEGACY_LIGHT_EVENT_FILE_PATH
   };
   for (const char* path : paths) {
@@ -482,4 +486,3 @@ bool validSlot(uint32_t slot) {
 }
 
 }  // namespace ring_storage
-

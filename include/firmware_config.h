@@ -33,7 +33,7 @@ constexpr char TIMEZONE[] = "JST-9";
 
 // Stable record contract
 constexpr uint32_t VALID_EPOCH_MIN = 1704067200UL;
-constexpr char FIRMWARE_VERSION[] = "8.4.0";
-constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (4UL << 8);
+constexpr char FIRMWARE_VERSION[] = "8.5.0";
+constexpr uint32_t FIRMWARE_VERSION_CODE = (8UL << 16) | (5UL << 8);
 
 }  // namespace firmware_config

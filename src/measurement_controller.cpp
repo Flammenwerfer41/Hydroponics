@@ -18,6 +18,8 @@ namespace {
 uint32_t lastSampleMs = 0;
 uint8_t consecutiveBme280Failures = 0;
 uint32_t consecutiveWaterTemperatureFailures = 0;
+uint32_t consecutiveCo2Failures = 0;
+uint32_t consecutiveIlluminanceFailures = 0;
 uint64_t currentBootId = 0;
 uint32_t nextReadingSequence = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
@@ -37,8 +39,18 @@ void performMeasurementCycle() {
   float humidity = NAN;
   float pressure = NAN;
   float waterTemperature = NAN;
+  uint16_t co2Concentration = 0;
+  float scd40Temperature = NAN;
+  float scd40Humidity = NAN;
+  float illuminance = NAN;
   const bool bme280Valid = sensors::readAir(temperature, humidity, pressure);
   const bool waterTemperatureValid = sensors::readWater(waterTemperature);
+  const bool co2Valid = sensors::readCo2(
+    bme280Valid ? pressure : NAN,
+    co2Concentration,
+    scd40Temperature,
+    scd40Humidity);
+  const bool illuminanceValid = sensors::readIlluminance(illuminance);
 
   if (bme280Valid) {
     consecutiveBme280Failures = 0;
@@ -50,10 +62,10 @@ void performMeasurementCycle() {
     Serial.printf("BME280 measurement failed (%u/%u).\n",
                   consecutiveBme280Failures,
                   firmware_config::MAX_CONSECUTIVE_AIR_SENSOR_FAILURES);
-    if (consecutiveBme280Failures >=
+    if (consecutiveBme280Failures ==
         firmware_config::MAX_CONSECUTIVE_AIR_SENSOR_FAILURES) {
-      network_manager::servicedDelay(1000);
-      ESP.restart();
+      Serial.println(
+        "BME280 remains unavailable; other sensors will continue without rebooting.");
     }
   }
 
@@ -68,9 +80,30 @@ void performMeasurementCycle() {
       static_cast<unsigned long>(consecutiveWaterTemperatureFailures));
   }
 
-  if (!bme280Valid && !waterTemperatureValid) {
+  if (co2Valid) {
+    consecutiveCo2Failures = 0;
+  } else {
+    if (consecutiveCo2Failures < UINT32_MAX) consecutiveCo2Failures++;
+    Serial.printf(
+      "SCD40 measurement unavailable (%lu consecutive); continuing with available data.\n",
+      static_cast<unsigned long>(consecutiveCo2Failures));
+  }
+
+  if (illuminanceValid) {
+    consecutiveIlluminanceFailures = 0;
+  } else {
+    if (consecutiveIlluminanceFailures < UINT32_MAX) {
+      consecutiveIlluminanceFailures++;
+    }
+    Serial.printf(
+      "VEML7700 measurement unavailable (%lu consecutive); continuing with available data.\n",
+      static_cast<unsigned long>(consecutiveIlluminanceFailures));
+  }
+
+  if (!bme280Valid && !waterTemperatureValid && !co2Valid &&
+      !illuminanceValid) {
     Serial.println(
-      "No primary sensor data available; storage and cloud upload skipped.");
+      "No sensor data available; storage and cloud upload skipped.");
     return;
   }
 
@@ -86,6 +119,17 @@ void performMeasurementCycle() {
   if (waterTemperatureValid) {
     Serial.printf("Water temperature: %.2f C\n", waterTemperature);
   }
+  if (co2Valid) {
+    Serial.printf(
+      "CO2: %u ppm (SCD40 %.2f C, %.2f %% RH%s)\n",
+      co2Concentration,
+      scd40Temperature,
+      scd40Humidity,
+      bme280Valid ? ", BME280 pressure compensated" : "");
+  }
+  if (illuminanceValid) {
+    Serial.printf("Illuminance: %.2f lux\n", illuminance);
+  }
   Serial.printf("RSSI: %d dBm\n", rssi);
 
   SensorRecord record{};
@@ -98,12 +142,20 @@ void performMeasurementCycle() {
   record.humidity = humidity;
   record.pressure = pressure;
   record.waterTemperature = waterTemperature;
+  record.illuminance = illuminance;
+  record.co2Concentration = co2Concentration;
   record.rssi = static_cast<int8_t>(constrain(rssi, -127, 0));
   if (bme280Valid) {
     record.flags |= FLAG_BME280_VALID;
   }
   if (waterTemperatureValid) {
     record.flags |= FLAG_WATER_VALID;
+  }
+  if (co2Valid) {
+    record.flags |= FLAG_SCD40_VALID;
+  }
+  if (illuminanceValid) {
+    record.flags |= FLAG_VEML7700_VALID;
   }
 
   bool localSaved = false;

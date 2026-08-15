@@ -163,7 +163,7 @@ int postCloudflarePayload(const String& url, const String& payload, String& resp
 bool uploadToCloudflare(const SensorRecord& record) {
   if (!configured()) return false;
   String payload;
-  if (!payload.reserve(480) || !appendCloudflareReadingJson(payload, record)) {
+  if (!payload.reserve(560) || !appendCloudflareReadingJson(payload, record)) {
     Serial.println("Cloudflare upload skipped: payload allocation or formatting failed.");
     return false;
   }
@@ -191,7 +191,7 @@ void recoverPendingCloudflareRecords() {
   }
 
   String payload;
-  if (!payload.reserve(96 + count * 430U)) {
+  if (!payload.reserve(96 + count * 500U)) {
     Serial.println("Cloudflare recovery skipped: insufficient heap for JSON payload.");
     scheduleCloudflareBackoff();
     return;

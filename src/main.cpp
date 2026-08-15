@@ -1,14 +1,14 @@
 /*
-  ESP32 + BME280 Hydroponics Environment Logger v8.4.0
+  ESP32 Hydroponics Environment Logger v8.5.0
   --------------------------------------------------
   Cloudflare-native release. Physical sensor values are sent to the Cloudflare
   ingestion API. ArduinoOTA and the 14-day LittleFS sensor ring remain available,
   while the ESP-hosted dashboard and HTTP API stay removed to reduce firmware
   size and runtime memory use.
 
-  Each ring record carries a stable boot/sequence identity, all available sensor
-  telemetry and a Cloudflare acknowledgement flag. SwitchBot observation and
-  control are owned by the Cloudflare Worker.
+  Each ring record carries a stable boot/sequence identity, all available BME280,
+  DS18B20, SCD40 and VEML7700 telemetry, plus a Cloudflare acknowledgement flag.
+  SwitchBot observation and control are owned by the Cloudflare Worker.
 */
 
 #include <Arduino.h>
