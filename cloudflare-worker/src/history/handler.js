@@ -1,6 +1,7 @@
 import { METRICS } from "../ingestion/contract.js";
 import { authenticateAdmin } from "../admin/access.js";
 import { jsonResponse as sharedJsonResponse, publicCorsHeaders } from "../http/response.js";
+import { deriveLightMetrics, publicLightCalibration } from "../metrics/light-calibration.js";
 import {
   HISTORY_SCHEMA_VERSION,
   HISTORY_TIMEZONE,
@@ -58,23 +59,30 @@ function generatedEnvelope(query, includeIdentity = false) {
     delete queryMetadata.zone_id;
     delete queryMetadata.device_id;
   }
-  return {
+  const envelope = {
     schema_version: HISTORY_SCHEMA_VERSION,
     generated_at: new Date().toISOString(),
     timezone: HISTORY_TIMEZONE,
     query: queryMetadata,
     units: Object.fromEntries(query.metrics.map((metric) => [metric, METRICS[metric].unit]))
   };
+  if (query.metrics.includes("illuminance")) {
+    envelope.calibrations = { estimated_ppfd: publicLightCalibration() };
+  }
+  return envelope;
 }
 
 function publicReading(reading) {
   if (!reading) return null;
-  return {
+  const output = {
     measured_at: reading.measured_at,
     values: reading.values,
     quality: reading.quality,
     diagnostics: reading.diagnostics
   };
+  const derived = deriveLightMetrics(reading);
+  if (derived) output.derived = derived;
+  return output;
 }
 
 function publicBucket(bucket) {

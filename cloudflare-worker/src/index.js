@@ -14,6 +14,7 @@ import { processJournalCleanup } from "./journal/cleanup.js";
 import { deliverDiscordNotifications } from "./alerts/discord.js";
 import { handlePublicAlerts } from "./alerts/handler.js";
 import { evaluateAlerts } from "./alerts/service.js";
+import { publicLightCalibration } from "./metrics/light-calibration.js";
 import {
   archiveJmaWeather,
   currentWeather,
@@ -125,6 +126,23 @@ async function routeRequest(request, environment, context) {
 
     if (path === "/v1/alerts/active") {
       return handlePublicAlerts(request, environment);
+    }
+
+    if (path === "/v1/calibrations/light") {
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400"
+      } });
+      if (request.method !== "GET") {
+        return jsonResponse({ error: "Method not allowed" }, 405, { "Allow": "GET, OPTIONS" });
+      }
+      return jsonResponse({
+        schema_version: 1,
+        generated_at: new Date().toISOString(),
+        calibration: publicLightCalibration()
+      }, 200, { "Cache-Control": "public, max-age=86400" });
     }
 
     if ((request.method === "POST" || request.method === "OPTIONS") &&
