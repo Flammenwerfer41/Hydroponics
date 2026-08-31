@@ -161,6 +161,8 @@ Discord 전송은 [`cloudflare-worker/ALERTS.md`](cloudflare-worker/ALERTS.md)�
 클라우드 저장, 재배일지, 사진, 관리자 기능과 장래 확장 계획은
 [Hydroponics Cloud Platform Roadmap](ROADMAP.md)에 정리되어 있습니다. 실제 작업의
 우선순위와 진행 상태는 [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)에서 관리합니다.
+발코니 기상대 같은 병행 노드를 같은 플랫폼에서 운영하기 위한 데이터 계약과
+운영 기준은 [다중 환경 노드 통합 지침](MULTI_NODE_INTEGRATION.md)을 참조하십시오.
 
 ## 라이선스
 
