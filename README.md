@@ -9,7 +9,7 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - Framework: Arduino
 - Sensors: BME280, DS18B20 water temperature sensor, SCD40, VEML7700
 - Primary I2C: SDA 23, SCL 22 (BME280 + VEML7700, 3.3 V logic)
-- Secondary I2C: SDA 26, SCL 27 (SCD40, external 5 V/3.3 V level shifting required)
+- Secondary I2C: SDA 26, SCL 27 (SCD40 powered from VIN 5 V; current device uses direct I2C wiring)
 - 1-Wire: DS18B20 data on GPIO 15 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 14일 링버퍼
 - Integrations: Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
@@ -20,7 +20,7 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 
 ## 현재 운영 기준
 
-- 운영 펌웨어: v8.4.0
+- 운영 펌웨어: v8.5.0
 - 센서 주기: 2분
 - 원격 측정 저장소: Cloudflare D1
 - 장애 시 로컬 보존: LittleFS 14일 링버퍼
@@ -29,6 +29,9 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - 관리자 인증: Cloudflare Access
 - 사진과 정기 백업: Cloudflare R2
 - 비상용 정적 화면: GitHub Pages와 GitLab Pages
+
+현재 타워의 AC/DC 전원, 센서 배선, 클라우드 데이터와 조명 제어 흐름은
+[현재 수경재배 타워 시스템 구성도](docs/architecture/TOWER_SYSTEM.md)에 정리되어 있습니다.
 
 ThingSpeak 송신과 조회는 2026-08-09부터 종료되었습니다. 과거 데이터는 D1으로
 이관되었으며, ESP32·대시보드·일일 보고서는 현재 Cloudflare 경로만 사용합니다.
