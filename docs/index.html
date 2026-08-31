@@ -11,7 +11,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="tokens.css?v=20260815-co2-chart">
   <link rel="stylesheet" href="styles.css?v=20260815-co2-chart">
-  <link rel="stylesheet" href="scene.css?v=20260809-performance">
+  <link rel="stylesheet" href="scene.css?v=20260831-ppfd-card">
 </head>
 <body>
   <div class="page-shell">
@@ -128,16 +128,16 @@
             <div class="v2-metric v2-temperature"><span class="v2-icon" aria-hidden="true">♨</span><strong><span id="temperature">--</span><small>°C</small></strong></div>
             <div class="v2-metric v2-humidity"><span class="v2-icon" aria-hidden="true">◆</span><strong><span id="humidity">--</span><small>%</small></strong></div>
             <div class="v2-metric v2-pressure"><span class="v2-icon" aria-hidden="true">◉</span><strong><span id="pressure">--</span><small>hPa</small></strong></div>
-            <div class="v2-derived-card v2-di"><span class="v2-derived-icon" aria-hidden="true">❧</span><span>DI<strong id="discomfortIndex">--</strong></span></div>
+            <div class="v2-derived-card v2-co2"><span class="v2-derived-icon" aria-hidden="true">◌</span><span>CO₂<strong><span id="co2Concentration">--</span><small>ppm</small></strong></span></div>
             <div class="v2-derived-card v2-vpd"><span class="v2-derived-icon" aria-hidden="true">◒</span><span>VPD<strong><span id="vpdValue">--</span><small>kPa</small></strong></span></div>
-            <div class="v2-derived-card v2-dew"><span class="v2-derived-icon" aria-hidden="true">≋</span><span>DEW<strong><span id="dewPoint">--</span><small>°C</small></strong></span></div>
+            <div class="v2-derived-card v2-ppfd"><span class="v2-derived-icon" aria-hidden="true">☼</span><span>ePPFD<strong><span id="estimatedPpfd">--</span><small>µmol/m²/s</small></strong></span></div>
             <span class="visually-hidden" id="airUpdated" data-i18n="status.measurementWaiting">측정 대기 중</span>
             <span class="visually-hidden" id="temperatureNote"></span><span class="visually-hidden" id="humidityNote"></span>
-            <span class="visually-hidden" id="discomfortNote"></span><span class="visually-hidden" id="vpdNote"></span><span class="visually-hidden" id="dewPointNote"></span>
+            <span class="visually-hidden" id="co2Updated" data-i18n="status.measurementWaiting">측정 대기 중</span><span class="visually-hidden" id="vpdNote"></span><span class="visually-hidden" id="ppfdUpdated" data-i18n="status.measurementWaiting">측정 대기 중</span>
           </div>
 
           <div class="v2-water-reading"><span class="v2-icon" aria-hidden="true">≈</span><strong><span id="waterTemperature">--</span><small>°C</small></strong></div>
-          <span class="visually-hidden" id="waterTemperatureNote" data-i18n="scene.waterSensor">DS18B20 · GPIO 21</span>
+          <span class="visually-hidden" id="waterTemperatureNote" data-i18n="scene.waterSensor">DS18B20 · GPIO 15</span>
           <span class="visually-hidden" id="waterUpdated" data-i18n="status.measurementWaiting">측정 대기 중</span>
 
           <div class="v2-weather" aria-labelledby="weatherTitle">
@@ -321,6 +321,6 @@
 
   <noscript data-i18n="noscript">이 대시보드는 Cloudflare 센서 데이터를 불러오기 위해 JavaScript가 필요합니다.</noscript>
   <script src="weather-config.js" defer></script>
-  <script type="module" src="app.js?v=20260815-co2-chart"></script>
+  <script type="module" src="app.js?v=20260831-ppfd-card"></script>
 </body>
 </html>

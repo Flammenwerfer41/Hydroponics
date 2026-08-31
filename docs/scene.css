@@ -178,9 +178,9 @@
   letter-spacing: 0.05em;
 }
 
-.hybrid-scene .v2-di { grid-column: 2; grid-row: 1; }
+.hybrid-scene .v2-co2 { grid-column: 2; grid-row: 1; }
 .hybrid-scene .v2-vpd { grid-column: 2; grid-row: 2; }
-.hybrid-scene .v2-dew { grid-column: 2; grid-row: 3; }
+.hybrid-scene .v2-ppfd { grid-column: 2; grid-row: 3; }
 
 .hybrid-scene .v2-derived-icon {
   width: 28px;

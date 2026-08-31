@@ -21,7 +21,9 @@ const DASHBOARD_METRICS = Object.freeze([
   "humidity",
   "pressure",
   "wifi_rssi",
-  "water_temperature"
+  "water_temperature",
+  "co2_concentration",
+  "illuminance"
 ]);
 const HISTORY_METRICS = Object.freeze([
   "air_temperature",
@@ -81,7 +83,7 @@ const TRANSLATIONS = {
     "scene.airKicker": "잎 주변 공기",
     "scene.airTitle": "재배 공간",
     "scene.waterKicker": "화분 속 양액",
-    "scene.waterSensor": "DS18B20 · GPIO 21",
+    "scene.waterSensor": "DS18B20 · GPIO 15",
     "status.measurementWaiting": "측정 대기 중",
     "status.lastMeasured": "{time} 측정",
     "status.noRecentData": "최근 정상 데이터 없음",
@@ -242,7 +244,7 @@ const TRANSLATIONS = {
     "scene.airKicker": "葉の周辺環境",
     "scene.airTitle": "栽培空間",
     "scene.waterKicker": "容器内の養液",
-    "scene.waterSensor": "DS18B20 · GPIO 21",
+    "scene.waterSensor": "DS18B20 · GPIO 15",
     "status.measurementWaiting": "測定待ち",
     "status.lastMeasured": "{time}に測定",
     "status.noRecentData": "最近の正常データなし",
@@ -578,26 +580,14 @@ function vpdDescription(value) {
 function renderDerivedMetrics(temperature, humidity) {
   const metrics = calculateDerivedMetrics(temperature, humidity);
   if (!metrics) {
-    element("discomfortIndex").textContent = "--";
     element("vpdValue").textContent = "--";
-    element("dewPoint").textContent = "--";
-    element("discomfortNote").textContent = t("status.calculationWaiting");
     element("vpdNote").textContent = t("insight.vpdReference");
-    element("dewPointNote").textContent = t("insight.dewReference");
     return;
   }
 
-  const { discomfort, vpd, dewPoint, condensationGap } = metrics;
-
-  element("discomfortIndex").textContent = fixed(discomfort, 0);
-  element("discomfortNote").textContent = discomfortDescription(discomfort);
+  const { vpd } = metrics;
   element("vpdValue").textContent = fixed(vpd, 2);
   element("vpdNote").textContent = vpdDescription(vpd);
-  element("dewPoint").textContent = fixed(dewPoint, 1);
-  element("dewPointNote").textContent =
-    condensationGap <= 2
-      ? t("insight.condensationClose")
-      : t("insight.dewGap", { value: fixed(condensationGap, 1) });
 }
 
 function wifiDescription(rssi) {
@@ -888,6 +878,22 @@ function latestValidMetric(readings, metricName) {
   return { value: null, createdAt: null };
 }
 
+function latestEstimatedPpfd(readings) {
+  for (const reading of readings) {
+    const value = finiteNumber(reading?.derived?.estimated_ppfd?.value);
+    const createdAt = new Date(reading?.measured_at);
+    if (
+      reading?.quality?.illuminance === "valid" &&
+      reading?.derived?.estimated_ppfd?.qualifier === "estimated" &&
+      Number.isFinite(value) &&
+      !Number.isNaN(createdAt.getTime())
+    ) {
+      return { value, createdAt };
+    }
+  }
+  return { value: null, createdAt: null };
+}
+
 function buildCurrentSnapshot(data, lightData) {
   const readings = Array.isArray(data?.readings)
     ? data.readings
@@ -903,6 +909,8 @@ function buildCurrentSnapshot(data, lightData) {
     field3: latestValidMetric(readings, "pressure"),
     field4: latestValidMetric(readings, "wifi_rssi"),
     field5: latestValidMetric(readings, "water_temperature"),
+    co2: latestValidMetric(readings, "co2_concentration"),
+    estimatedPpfd: latestEstimatedPpfd(readings),
     field6: {
       value: lightData?.telemetry?.power_state === "on" ? 1 :
         lightData?.telemetry?.power_state === "off" ? 0 : null,
@@ -941,6 +949,8 @@ function renderCurrent(snapshot) {
   const pressure = fields.field3.value;
   const rssi = fields.field4.value;
   const waterTemperature = fields.field5.value;
+  const co2Concentration = fields.co2.value;
+  const estimatedPpfd = fields.estimatedPpfd.value;
   const lightStatus = fields.field6.value;
   const lightPower = fields.field7.value;
   const lightMinutes = fields.field8.value;
@@ -950,6 +960,10 @@ function renderCurrent(snapshot) {
   element("humidity").textContent = fixed(humidity, 1);
   element("pressure").textContent = fixed(pressure, 1);
   element("waterTemperature").textContent = fixed(waterTemperature, 1);
+  element("co2Concentration").textContent = Number.isFinite(co2Concentration)
+    ? String(Math.round(co2Concentration))
+    : "--";
+  element("estimatedPpfd").textContent = fixed(estimatedPpfd, 1);
   element("temperatureNote").textContent = temperatureDescription(temperature);
   element("humidityNote").textContent = humidityDescription(humidity);
   renderDerivedMetrics(temperature, humidity);
@@ -961,6 +975,8 @@ function renderCurrent(snapshot) {
 
   renderMeasurementAge("airUpdated", fields.field1);
   renderMeasurementAge("waterUpdated", fields.field5);
+  renderMeasurementAge("co2Updated", fields.co2);
+  renderMeasurementAge("ppfdUpdated", fields.estimatedPpfd);
   renderMeasurementAge("lightUpdated", fields.field6);
 
   const lightOn = lightStatus === 1;
