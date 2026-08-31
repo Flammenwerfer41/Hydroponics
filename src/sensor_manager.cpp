@@ -123,6 +123,14 @@ void begin(DelayHandler delayHandler) {
   secondaryWire.begin(
     firmware_config::SECONDARY_I2C_SDA_PIN,
     firmware_config::SECONDARY_I2C_SCL_PIN);
+  Serial.printf("Primary I2C bus %u: SDA GPIO %d, SCL GPIO %d (BME280, VEML7700).\n",
+                firmware_config::PRIMARY_I2C_BUS_INDEX,
+                firmware_config::PRIMARY_I2C_SDA_PIN,
+                firmware_config::PRIMARY_I2C_SCL_PIN);
+  Serial.printf("Secondary I2C bus %u: SDA GPIO %d, SCL GPIO %d (SCD40).\n",
+                firmware_config::SECONDARY_I2C_BUS_INDEX,
+                firmware_config::SECONDARY_I2C_SDA_PIN,
+                firmware_config::SECONDARY_I2C_SCL_PIN);
   initializeBME280();
   initializeDS18B20();
   initializeSCD40();

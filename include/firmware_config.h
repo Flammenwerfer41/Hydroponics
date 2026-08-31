@@ -6,17 +6,17 @@ namespace firmware_config {
 
 // Hardware wiring
 constexpr uint8_t PRIMARY_I2C_BUS_INDEX = 0;
-constexpr int PRIMARY_I2C_SDA_PIN = 18;
-constexpr int PRIMARY_I2C_SCL_PIN = 19;
+constexpr int PRIMARY_I2C_SDA_PIN = 23;
+constexpr int PRIMARY_I2C_SCL_PIN = 22;
 constexpr uint8_t SECONDARY_I2C_BUS_INDEX = 1;
-constexpr int SECONDARY_I2C_SDA_PIN = 25;
-constexpr int SECONDARY_I2C_SCL_PIN = 26;
-// Provisional assignments. The bus indexes can be changed after the final
-// perfboard layout is known without touching the sensor implementation.
+constexpr int SECONDARY_I2C_SDA_PIN = 26;
+constexpr int SECONDARY_I2C_SCL_PIN = 27;
+// BME280 and VEML7700 share the 3.3 V primary bus. SCD40 uses the secondary
+// bus so its separately level-shifted 5 V supply cannot raise the ESP32 bus.
 constexpr uint8_t BME280_I2C_BUS_INDEX = PRIMARY_I2C_BUS_INDEX;
-constexpr uint8_t SCD40_I2C_BUS_INDEX = PRIMARY_I2C_BUS_INDEX;
-constexpr uint8_t VEML7700_I2C_BUS_INDEX = SECONDARY_I2C_BUS_INDEX;
-constexpr int WATER_TEMPERATURE_PIN = 21;
+constexpr uint8_t SCD40_I2C_BUS_INDEX = SECONDARY_I2C_BUS_INDEX;
+constexpr uint8_t VEML7700_I2C_BUS_INDEX = PRIMARY_I2C_BUS_INDEX;
+constexpr int WATER_TEMPERATURE_PIN = 15;
 
 // Sensor behavior
 constexpr uint8_t DS18B20_RESOLUTION_BITS = 11;

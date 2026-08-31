@@ -1,15 +1,16 @@
 # ESP32 Hydroponics Environment Monitor
 
 ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 개발 기준은 v8.4.0이며 PlatformIO와 Arduino framework를 사용합니다.
+현재 운영 기준은 v8.5.0이며 PlatformIO와 Arduino framework를 사용합니다.
 
 ## 개발 환경
 
 - Board: Espressif ESP32 Dev Module (`esp32dev`)
 - Framework: Arduino
-- Sensors: BME280, DS18B20 water temperature sensor
-- I2C: SDA 18, SCL 19
-- 1-Wire: DS18B20 data on GPIO 21 (4.7 kΩ pull-up to 3.3 V)
+- Sensors: BME280, DS18B20 water temperature sensor, SCD40, VEML7700
+- Primary I2C: SDA 23, SCL 22 (BME280 + VEML7700, 3.3 V logic)
+- Secondary I2C: SDA 26, SCL 27 (SCD40, external 5 V/3.3 V level shifting required)
+- 1-Wire: DS18B20 data on GPIO 15 (4.7 kΩ pull-up to 3.3 V)
 - Storage: LittleFS 14일 링버퍼
 - Integrations: Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
 - Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
@@ -137,22 +138,23 @@ D1/R2 백업과 복구 훈련은 [`cloudflare-worker/BACKUP_RECOVERY.md`](cloudf
 [`cloudflare-worker/WEATHER_ARCHIVE.md`](cloudflare-worker/WEATHER_ARCHIVE.md), 경고 규칙과
 Discord 전송은 [`cloudflare-worker/ALERTS.md`](cloudflare-worker/ALERTS.md)를 참조하십시오.
 
-## 다음 센서 확장
+## v8.5.0 센서 확장 배선
 
-배송 예정인 SCD40(CO₂)과 VEML7700(조도)은 하드웨어 도착 후 다음 순서로
-추가합니다.
+- BME280과 VEML7700은 주소가 각각 `0x76`/`0x77`, `0x10`으로 다르므로
+  SDA 23·SCL 22의 하드웨어 I2C 버스를 공유합니다.
+- 사진으로 확인한 VEML7700 브레이크아웃은 레귤레이터와 로직 레벨 변환 회로가
+  있지만, ESP32와 연결할 때는 `VIN`도 3.3 V에 연결해 외부 SDA/SCL을 3.3 V
+  논리로 유지합니다.
+- SCD40은 SDA 26·SCL 27의 별도 하드웨어 I2C 버스를 사용합니다. SCD40을 5 V로
+  공급할 때는 센서 보드에 3.3 V I2C 레벨 변환이 있는지 확인하고, 없다면
+  양방향 I2C 레벨시프터를 추가해야 합니다.
+- DS18B20 데이터선은 GPIO 15로 이동하며 3.3 V에 4.7 kΩ 풀업을 사용합니다.
+- v8.5.0은 SCD40 CO₂에 BME280 기압 보정을 적용하고 VEML7700의 자동 범위
+  조도값을 원시 lux로 기록합니다. 추정 PPFD는 클라우드 표시 계층에서 버전이
+  지정된 계수로 계산합니다.
 
-1. 실제 브레이크아웃 보드의 3.3V 전원 호환성과 I2C 풀업 구성을 확인합니다.
-2. 기존 SDA 18·SCL 19 버스에서 BME280과 함께 주소 충돌 및 장시간 안정성을
-   검증합니다.
-3. 센서 드라이버와 측정 품질만 먼저 추가하고 저장·전송 규격 변경은 별도
-   커밋으로 진행합니다.
-4. D1 계약과 대시보드에 `co2_concentration`과 `illuminance`를 추가합니다.
-5. 조도에서 PPFD로의 변환은 식물등과 실제 설치 위치에서 얻은 보정값이 준비된
-   뒤 파생 지표로 도입합니다.
-
-현재 ESP32, BME280, DS18B20, 수직 타워와 SwitchBot 구성은 유지합니다. 새 센서가
-도착하기 전에는 핀 연결이나 운영 펌웨어의 측정 규격을 미리 바꾸지 않습니다.
+현재 v8.5.0은 실제 운영 장치에 배포되어 BME280, DS18B20, SCD40, VEML7700
+측정값을 Cloudflare D1으로 전송합니다.
 
 원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
 
