@@ -31,7 +31,8 @@ ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
 - 비상용 정적 화면: GitHub Pages와 GitLab Pages
 
 현재 타워의 AC/DC 전원, 센서 배선, 클라우드 데이터와 조명 제어 흐름은
-[현재 수경재배 타워 시스템 구성도](docs/architecture/TOWER_SYSTEM.md)에 정리되어 있습니다.
+[현재 수경재배 타워 시스템 구성도](docs/architecture/TOWER_SYSTEM.md)와
+[English version](docs/architecture/TOWER_SYSTEM.en.md)에 정리되어 있습니다.
 
 ThingSpeak 송신과 조회는 2026-08-09부터 종료되었습니다. 과거 데이터는 D1으로
 이관되었으며, ESP32·대시보드·일일 보고서는 현재 Cloudflare 경로만 사용합니다.

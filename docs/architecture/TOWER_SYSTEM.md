@@ -4,6 +4,8 @@
 소프트웨어 데이터·제어 흐름을 Mermaid로 정리합니다. 발코니 기상대처럼 아직
 운영에 투입되지 않은 장치는 포함하지 않습니다.
 
+[English version](TOWER_SYSTEM.en.md)
+
 ## 1. 하드웨어·전원·센서 배선
 
 ```mermaid
