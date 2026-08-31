@@ -1,173 +1,115 @@
 # ESP32 Hydroponics Environment Monitor
 
-ESP32-WROOM-32D 기반 수경재배 환경 모니터링 프로젝트입니다.
-현재 운영 기준은 v8.5.0이며 PlatformIO와 Arduino framework를 사용합니다.
+[![한국어 README](https://img.shields.io/badge/README-한국어-0d815c)](README.ko.md)
 
-## 개발 환경
+An ESP32-WROOM-32D-based hydroponics monitoring, recording, and control system.
+The sensor node preserves measurements locally during network outages, while a
+Cloudflare Worker and D1 provide the public dashboard, cultivation journal,
+alerts, and SwitchBot grow-light control.
 
-- Board: Espressif ESP32 Dev Module (`esp32dev`)
-- Framework: Arduino
-- Sensors: BME280, DS18B20 water temperature sensor, SCD40, VEML7700
-- Primary I2C: SDA 23, SCL 22 (BME280 + VEML7700, 3.3 V logic)
-- Secondary I2C: SDA 26, SCL 27 (SCD40 powered from VIN 5 V; current device uses direct I2C wiring)
-- 1-Wire: DS18B20 data on GPIO 15 (4.7 kΩ pull-up to 3.3 V)
-- Storage: LittleFS 14일 링버퍼
-- Integrations: Cloudflare Workers/D1, SwitchBot Plug Mini·Hub Mini
-- Dashboard: [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
-- Emergency mirror: [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
-- Features: Cloudflare 단독 기록, 공개·관리 대시보드, 재배일지와 사진,
-  JMA 실측 보관, Discord 경고, SwitchBot 제어, D1/R2 백업, OTA
+- **Production firmware:** v8.5.0
+- **Framework:** PlatformIO · Arduino
+- **Production dashboard:** [Cloudflare Worker](https://hydroponics-jma-weather.flammenwerfer41.workers.dev/)
+- **Emergency mirror:** [GitHub Pages](https://flammenwerfer41.github.io/Hydroponics/)
+- **System architecture:** [English](docs/architecture/TOWER_SYSTEM.en.md) · [한국어](docs/architecture/TOWER_SYSTEM.md)
 
-## 현재 운영 기준
+## Highlights
 
-- 운영 펌웨어: v8.5.0
-- 센서 주기: 2분
-- 원격 측정 저장소: Cloudflare D1
-- 장애 시 로컬 보존: LittleFS 14일 링버퍼
-- 조명 상태·전력·스케줄과 에어컨 명령: Cloudflare Worker → SwitchBot
-- 기상 자료: JMA 실측 장기 보관, 도쿄지방 최신 예보 1건 캐시
-- 관리자 인증: Cloudflare Access
-- 사진과 정기 백업: Cloudflare R2
-- 비상용 정적 화면: GitHub Pages와 GitLab Pages
+- BME280 air temperature, humidity, and pressure; DS18B20 nutrient temperature;
+  SCD40 CO₂; and VEML7700 illuminance
+- Raw lux retention with a versioned coefficient for estimated PPFD in the dashboard
+- Approximately two-minute sampling and a 14-day LittleFS ring buffer
+- Oldest-first, idempotent single and bulk backfill after network recovery
+- Cloudflare Worker device authentication, D1 history, and R2 photo/backup storage
+- Public and administrative dashboards, Cloudflare Access, and a cultivation journal
+  with client-compressed WebP photos
+- Long-term official JMA observation storage and a Tokyo regional forecast
+- Stateful Discord advisory, warning, and recovery notifications
+- SwitchBot Plug Mini state, power, schedule, and remote grow-light commands
+- Arduino OTA
 
-현재 타워의 AC/DC 전원, 센서 배선, 클라우드 데이터와 조명 제어 흐름은
-[현재 수경재배 타워 시스템 구성도](docs/architecture/TOWER_SYSTEM.md)와
-[English version](docs/architecture/TOWER_SYSTEM.en.md)에 정리되어 있습니다.
+ThingSpeak ingestion and reads were retired on 2026-08-09. Historical records
+were migrated to D1; the ESP32, dashboards, and reports now use the Cloudflare path.
 
-ThingSpeak 송신과 조회는 2026-08-09부터 종료되었습니다. 과거 데이터는 D1으로
-이관되었으며, ESP32·대시보드·일일 보고서는 현재 Cloudflare 경로만 사용합니다.
+## Hardware
 
-## 처음 설정
+| Component | Power and connection | Responsibility |
+| --- | --- | --- |
+| ESP32 | 30-pin NodeMCU-32S-compatible board, USB-C 5 V | Sampling, local retention, upload, OTA |
+| BME280 | 3.3 V, SDA 23 / SCL 22 | Air temperature, RH, pressure |
+| VEML7700 | 3.3 V, SDA 23 / SCL 22 | Illuminance |
+| SCD40 | VIN 5 V, SDA 26 / SCL 27 | CO₂ with BME280 pressure compensation |
+| DS18B20 | 3.3 V, DATA 15, 4.7 kΩ pull-up | Nutrient temperature |
 
-1. `include/secrets.example.h`를 `include/secrets.h`로 복사합니다.
-2. `include/secrets.h`의 자리표시자를 실제 값으로 교체합니다.
-3. VS Code에서 PlatformIO의 **Build**를 실행합니다.
+The BME280 and VEML7700 share the primary I²C bus; the SCD40 uses the secondary
+I²C bus. On the production unit, the SCD40 is powered from VIN 5 V and connected
+directly to GPIO26/27 without a separate level shifter. This is an owner-approved
+operating exception, not a general reference circuit based on the official datasheet.
 
-`include/secrets.h`는 `.gitignore`에 등록되어 있으므로 Git에 포함하면 안 됩니다.
+See the [tower system architecture](docs/architecture/TOWER_SYSTEM.en.md) for the
+AC/DC power distribution, circulation pump, grow lights, sensor buses, and complete
+data flow.
 
-## OTA 업데이트
+## Software boundaries
 
-ESP32와 PC가 같은 네트워크에 연결된 상태에서 PlatformIO Core CLI
-터미널을 열고 다음 명령을 실행합니다.
+```text
+Sensors → ESP32 → LittleFS → Cloudflare Worker → D1 → Dashboard and alerts
+                                                  └→ R2 photos and backups
+Admin → Cloudflare Access → Worker → SwitchBot API → Grow lights
+JMA → Worker scheduled task → D1 weather observations
+```
+
+- `src/main.cpp`: initialization order and main loop
+- `include/firmware_config.h`: pins, intervals, retry policy, firmware version
+- `src/sensor_manager.cpp`: sensor initialization and independent measurements
+- `src/measurement_controller.cpp`: sampling schedule, failure policy, record creation
+- `src/record_codec.cpp`: LittleFS record and Cloudflare JSON serialization
+- `src/ring_storage.cpp`: ring buffer and acknowledgement sidecar
+- `src/cloud_upload.cpp`: live queue, bulk recovery, exponential backoff
+- `src/network_manager.cpp`: Wi-Fi, NTP, ArduinoOTA
+
+A failed sensor field does not discard valid fields from the same sampling cycle.
+Missing and invalid values retain explicit quality states. A local record is marked
+complete only after Cloudflare returns `accepted` or `duplicate`.
+
+## Initial setup
+
+1. Copy `include/secrets.example.h` to `include/secrets.h`.
+2. Enter the Wi-Fi, OTA, and Cloudflare device credentials.
+3. Run PlatformIO **Build** from VS Code.
+
+`include/secrets.h` is excluded from Git and must never be committed.
+
+## Build and OTA
 
 ```powershell
-$env:ESP32_OTA_HOST = "장치의 OTA 호스트명.local"
-$env:ESP32_OTA_PASSWORD = "장치의 OTA 비밀번호"
 pio run -e esp32dev_ota
+
+$env:ESP32_OTA_HOST = "device-hostname.local"
+$env:ESP32_OTA_PASSWORD = "device-ota-password"
 pio run -e esp32dev_ota -t upload
 ```
 
-OTA 호스트명 대신 장치의 IP 주소를 사용할 수도 있습니다. 환경변수는
-현재 터미널 세션에만 유지되며 Git에 저장되지 않습니다.
+An IP address may be used instead of the OTA hostname. A regular firmware OTA does
+not overwrite the entire LittleFS partition. Physical upload and hardware validation
+are performed on site.
 
-일반 펌웨어 OTA는 LittleFS 파티션 전체를 덮어쓰지 않습니다. 다만 수온을
-포함하는 새 저장 형식으로 전환한 펌웨어를 처음 실행하면 기존 센서 링버퍼와
-조명 이벤트 파일을 삭제하고 `/sensor_ring_v8.bin`을 생성합니다. v8.4.0은 v8.3.0의
-40바이트 센서 링과 승인 사이드카를 그대로 사용하므로 OTA 시 기존 데이터가 유지됩니다.
+## Cloud operations documentation
 
-## 측정 및 저장 정책
+- [Ingestion contract and device authentication](cloudflare-worker/INGESTION.md)
+- [Measurement history API](cloudflare-worker/HISTORY_API.md)
+- [Dashboard deployment and rollback](cloudflare-worker/DASHBOARD_DEPLOYMENT.md)
+- [D1/R2 backup and recovery](cloudflare-worker/BACKUP_RECOVERY.md)
+- [SwitchBot control](cloudflare-worker/CONTROL.md)
+- [Cultivation journal and photos](cloudflare-worker/JOURNAL.md)
+- [JMA observation archive](cloudflare-worker/WEATHER_ARCHIVE.md)
+- [Discord alerts](cloudflare-worker/ALERTS.md)
+- [Cloud platform roadmap](ROADMAP.md)
+- [Multi-node integration guide](MULTI_NODE_INTEGRATION.md)
+- [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)
 
-- BME280 온도·습도·기압과 DS18B20 수온은 독립적으로 유효성을 판정합니다.
-  한쪽 센서가 실패해도 정상 측정값은 LittleFS에 저장하고 Cloudflare로 전송하며,
-  실패한 필드만 비워 둡니다. 두 센서가 모두 실패한 주기만 건너뜁니다.
-- BME280은 5회 연속 실패하면 ESP32를 재시작합니다. DS18B20은 단선 시 재시작보다
-  재탐색이 유효하므로 매 측정 주기에 다시 탐색하면서 다른 센서의 동작을 계속합니다.
-- `/sensor_ring_v8.bin`은 측정 시각, 부팅 ID, 순번, 펌웨어 버전, 물리 센서값과
-  Cloudflare 확인 비트를 포함한 40바이트 `SensorRecord`를
-  사용하며 2분 간격으로 14일을 저장합니다. LittleFS의 copy-on-write를 고려해
-  링 파일 두 배와 128KB 여유 공간이 파티션에 들어오는지도 부팅 시 검증합니다.
-- LittleFS 링버퍼는 클라우드 장애 시의 로컬 백업으로 유지합니다.
-- Cloudflare는 장치별 Bearer 토큰으로 인증하고, `accepted` 또는 `duplicate` 응답을
-  받은 기록만 완료 처리합니다. 최대 15건을 오래된 순서로 복구하며 실패 시
-  30초에서 30분까지 지수 백오프와 지터를 적용합니다.
-- Cloudflare 토큰이 비어 있으면 전송 기록은 LittleFS에 미완료 상태로 남습니다.
-  D1과 장치 자격 증명을 준비한 뒤 `include/secrets.h`의
-  `CLOUDFLARE_DEVICE_TOKEN`에 발급값을 넣습니다.
-- Cloudflare HTTPS는 현재 `workers.dev` 인증서 체인의 GlobalSign ECC Root CA R4로
-  서버를 검증합니다. 체인이 변경되면 전송은 안전하게 실패하고 기록은 LittleFS에
-  남으므로, 새 루트 인증서를 반영한 펌웨어로 갱신해야 합니다.
-- ESP 로컬 웹 대시보드와 `/api/current`, `/api/history`, `/download.csv`는
-  클라우드 대시보드 전환에 따라 제거되었습니다.
-- SwitchBot 토큰·서명·상태 조회도 ESP32에서 제거되었습니다. Worker가 조명 상태와
-  전력을 별도 주기로 기록하고 스케줄 및 관리자 명령을 처리합니다.
-- 기존 `/sensor_ring.bin`, `/sensor_ring_v2.bin`, `/sensor_ring_v3.bin`,
-  `/light_events.bin`은 새 형식으로 처음 초기화할 때 삭제됩니다.
-- 기능 변경과 구조 리팩터링은 별도 커밋으로 분리합니다.
+The original monolithic Arduino sketch is preserved in `legacy_arduino/`.
 
-승인 상태는 `/sensor_ack_v1.bin` 사이드카에 슬롯당 1바이트로 저장합니다. 따라서
-Cloudflare 승인 갱신이 대형 센서 링을 복사-기록하지 않습니다.
+## License
 
-## 펌웨어 구조
-
-v8.4.0의 3차 리팩터링은 기능과 저장 형식을 바꾸지 않고 책임을 다음처럼
-분리했습니다.
-
-- `src/main.cpp`: 초기화 순서와 메인 루프만 조정
-- `include/firmware_config.h`: 핀, 주기, 재시도 간격과 펌웨어 버전
-- `src/sensor_manager.cpp`: BME280·DS18B20 초기화와 독립 측정
-- `src/measurement_controller.cpp`: 2분 주기, 실패 정책과 측정 레코드 생성
-- `src/record_codec.cpp`: LittleFS 레코드와 Cloudflare JSON 직렬화
-- `src/ring_storage.cpp`: 14일 링버퍼와 승인 사이드카
-- `src/cloud_upload.cpp`: 실시간 큐, 벌크 복구와 백오프
-- `src/network_manager.cpp`: Wi-Fi, NTP, ArduinoOTA와 네트워크 서비스
-
-`main.cpp`에서 각 책임을 분리했기 때문에 향후 센서가 늘어나도 저장·전송·OTA
-로직을 동시에 수정하지 않고 단계별로 확장할 수 있습니다.
-
-## v8.4.0 클라우드 제어 구조
-
-ESP32는 BME280·DS18B20과 자체 Wi-Fi 상태만 수집합니다. 조명 상태·전력 조회,
-07:00 ON / 21:00 OFF 스케줄, 수동 조작과 에어컨 명령은 Cloudflare Worker가
-SwitchBot OpenAPI를 통해 담당합니다. 에어컨은 적외선 장치이므로 실제 상태가 아니라
-마지막 명령만 표시합니다.
-
-관리 화면은 `/admin/`에 있으며 Cloudflare Access로 보호합니다. 공개 센서 화면은
-`/`에서 그대로 제공됩니다. 운영 및 보안 설정은
-[`cloudflare-worker/CONTROL.md`](cloudflare-worker/CONTROL.md)를 참조하십시오.
-
-운영 프로비저닝을 다시 수행해야 할 때는
-`cloudflare-worker/scripts/provision-device-credential.ps1`을 사용합니다. 스크립트는
-토큰 원문을 출력하지 않고 Git에서 제외된 `include/secrets.h`와 `.wrangler` 작업 파일만
-갱신합니다. 실행하면 기존 장치 토큰이 교체되므로 곧바로 D1 bootstrap과 펌웨어 OTA를
-함께 수행해야 합니다.
-
-Cloudflare API와 자격 증명 등록 방법은
-[`cloudflare-worker/INGESTION.md`](cloudflare-worker/INGESTION.md)에 정리되어 있습니다.
-측정 이력 조회·내보내기는 [`cloudflare-worker/HISTORY_API.md`](cloudflare-worker/HISTORY_API.md),
-D1/R2 백업과 복구 훈련은 [`cloudflare-worker/BACKUP_RECOVERY.md`](cloudflare-worker/BACKUP_RECOVERY.md)를
-참조하십시오. 대시보드 배포와 롤백은
-[`cloudflare-worker/DASHBOARD_DEPLOYMENT.md`](cloudflare-worker/DASHBOARD_DEPLOYMENT.md)에
-정리되어 있습니다. 재배일지와 사진은
-[`cloudflare-worker/JOURNAL.md`](cloudflare-worker/JOURNAL.md), JMA 보관은
-[`cloudflare-worker/WEATHER_ARCHIVE.md`](cloudflare-worker/WEATHER_ARCHIVE.md), 경고 규칙과
-Discord 전송은 [`cloudflare-worker/ALERTS.md`](cloudflare-worker/ALERTS.md)를 참조하십시오.
-
-## v8.5.0 센서 확장 배선
-
-- BME280과 VEML7700은 주소가 각각 `0x76`/`0x77`, `0x10`으로 다르므로
-  SDA 23·SCL 22의 하드웨어 I2C 버스를 공유합니다.
-- 사진으로 확인한 VEML7700 브레이크아웃은 레귤레이터와 로직 레벨 변환 회로가
-  있지만, ESP32와 연결할 때는 `VIN`도 3.3 V에 연결해 외부 SDA/SCL을 3.3 V
-  논리로 유지합니다.
-- SCD40은 SDA 26·SCL 27의 별도 하드웨어 I2C 버스를 사용합니다. SCD40을 5 V로
-  공급할 때는 센서 보드에 3.3 V I2C 레벨 변환이 있는지 확인하고, 없다면
-  양방향 I2C 레벨시프터를 추가해야 합니다.
-- DS18B20 데이터선은 GPIO 15로 이동하며 3.3 V에 4.7 kΩ 풀업을 사용합니다.
-- v8.5.0은 SCD40 CO₂에 BME280 기압 보정을 적용하고 VEML7700의 자동 범위
-  조도값을 원시 lux로 기록합니다. 추정 PPFD는 클라우드 표시 계층에서 버전이
-  지정된 계수로 계산합니다.
-
-현재 v8.5.0은 실제 운영 장치에 배포되어 BME280, DS18B20, SCD40, VEML7700
-측정값을 Cloudflare D1으로 전송합니다.
-
-원본 Arduino 스케치는 `legacy_arduino/`에 보관되어 있습니다.
-
-클라우드 저장, 재배일지, 사진, 관리자 기능과 장래 확장 계획은
-[Hydroponics Cloud Platform Roadmap](ROADMAP.md)에 정리되어 있습니다. 실제 작업의
-우선순위와 진행 상태는 [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)에서 관리합니다.
-발코니 기상대 같은 병행 노드를 같은 플랫폼에서 운영하기 위한 데이터 계약과
-운영 기준은 [다중 환경 노드 통합 지침](MULTI_NODE_INTEGRATION.md)을 참조하십시오.
-
-## 라이선스
-
-이 프로젝트는 [MIT License](LICENSE)로 배포됩니다.
+[MIT License](LICENSE)
