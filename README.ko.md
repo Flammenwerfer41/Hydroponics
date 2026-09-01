@@ -100,6 +100,7 @@ OTA 호스트 대신 IP 주소를 사용할 수 있습니다. 일반 펌웨어 O
 - [재배일지와 사진](cloudflare-worker/JOURNAL.md)
 - [JMA 관측 보관](cloudflare-worker/WEATHER_ARCHIVE.md)
 - [Discord 경고](cloudflare-worker/ALERTS.md)
+- [일일 보고서 브리지와 CO₂·추정 PPFD 해석](docs/DAILY_REPORT.md)
 - [클라우드 플랫폼 로드맵](ROADMAP.md)
 - [다중 환경 노드 통합 지침](MULTI_NODE_INTEGRATION.md)
 - [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)

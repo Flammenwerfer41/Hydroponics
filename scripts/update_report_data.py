@@ -18,7 +18,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_BASE_URL = "https://hydroponics-jma-weather.flammenwerfer41.workers.dev"
 DEFAULT_DEVICE_ID = "esp32-01"
 DEFAULT_TIMEZONE = "Asia/Tokyo"
@@ -26,6 +26,7 @@ DEFAULT_FETCH_DAYS = 8
 EXPECTED_INTERVAL_SECONDS = 120
 GAP_THRESHOLD_SECONDS = 360
 REQUEST_TIMEOUT_SECONDS = 30
+DEFAULT_PPFD_COEFFICIENT = 0.01732
 
 FIELD_NAMES = {
     "field1": "Temperature",
@@ -47,6 +48,8 @@ NORMALIZED_FIELDS = {
     "field6": "light_status",
     "field7": "light_power",
     "field8": "light_uptime",
+    "co2_concentration": "co2_concentration",
+    "illuminance": "illuminance",
 }
 
 SUMMARY_FIELDS = (
@@ -55,7 +58,41 @@ SUMMARY_FIELDS = (
     "pressure",
     "wifi_rssi",
     "water_temperature",
+    "co2_concentration",
+    "illuminance",
+    "estimated_ppfd",
 )
+
+REPORT_METRICS = {
+    "temperature": {"name": "Indoor air temperature", "unit": "degC", "source": "BME280"},
+    "humidity": {"name": "Indoor relative humidity", "unit": "%", "source": "BME280"},
+    "pressure": {"name": "Indoor air pressure", "unit": "hPa", "source": "BME280"},
+    "wifi_rssi": {"name": "Wi-Fi signal strength", "unit": "dBm", "source": "ESP32"},
+    "water_temperature": {"name": "Nutrient water temperature", "unit": "degC", "source": "DS18B20"},
+    "co2_concentration": {"name": "Indoor CO2 concentration", "unit": "ppm", "source": "SCD40"},
+    "illuminance": {"name": "Grow-light illuminance", "unit": "lux", "source": "VEML7700"},
+    "estimated_ppfd": {"name": "Estimated PPFD", "unit": "umol/m2/s", "source": "derived from illuminance"},
+    "light_status": {"name": "Grow-light state", "unit": "boolean", "source": "SwitchBot"},
+    "light_power": {"name": "Grow-light power", "unit": "W", "source": "SwitchBot"},
+    "light_uptime": {"name": "Grow-light daily uptime", "unit": "min", "source": "SwitchBot"},
+}
+
+DEFAULT_LIGHT_CALIBRATION = {
+    "profile_id": "grow-light-01",
+    "version": 1,
+    "status": "active",
+    "effective_from": "2026-08-16T00:00:00+09:00",
+    "recorded_on": "2026-08-16",
+    "method": "fixed_lux_coefficient",
+    "coefficient": DEFAULT_PPFD_COEFFICIENT,
+    "source": "user-provided grow-light conversion coefficient",
+    "note": "Estimated PPFD from a grow-light-specific lux coefficient; not a PAR sensor measurement.",
+    "output": {
+        "metric": "estimated_ppfd",
+        "unit": "umol/m2/s",
+        "qualifier": "estimated",
+    },
+}
 
 
 def load_timezone(name: str) -> ZoneInfo | timezone:
@@ -143,7 +180,10 @@ def fetch_payload(
     start_date = yesterday - timedelta(days=days - 2)
     range_start = datetime.combine(start_date, time.min, local_timezone)
     range_end = datetime.combine(yesterday + timedelta(days=1), time.min, local_timezone)
-    metrics = "air_temperature,humidity,pressure,wifi_rssi,water_temperature"
+    metrics = (
+        "air_temperature,humidity,pressure,wifi_rssi,water_temperature,"
+        "co2_concentration,illuminance"
+    )
     query = urlencode({
         "from": format_timestamp(range_start),
         "to": format_timestamp(range_end),
@@ -152,8 +192,13 @@ def fetch_payload(
     })
     export_url = f"{base_url.rstrip('/')}/admin/api/export.json?{query}"
     light_url = f"{base_url.rstrip('/')}/v1/light/history?{urlencode({'days': days, 'granularity': 'raw'})}"
+    calibration_url = f"{base_url.rstrip('/')}/v1/calibrations/light"
     sensor_payload = fetch_json(export_url, access_headers)
     light_payload = fetch_json(light_url)
+    calibration_payload = fetch_json(calibration_url)
+    calibration = calibration_payload.get("calibration")
+    if not isinstance(calibration, dict):
+        raise RuntimeError("Cloudflare calibration endpoint is missing the calibration object")
     readings = sensor_payload.get("readings")
     points = light_payload.get("points")
     if not isinstance(readings, list):
@@ -206,6 +251,8 @@ def fetch_payload(
             "field6": nearest.get("light_status") if nearest else None,
             "field7": nearest.get("light_power") if nearest else None,
             "field8": nearest.get("light_uptime") if nearest else None,
+            "co2_concentration": values.get("co2_concentration"),
+            "illuminance": values.get("illuminance"),
         }
         feeds.append(feed)
 
@@ -217,6 +264,9 @@ def fetch_payload(
             **FIELD_NAMES,
         },
         "feeds": feeds,
+        "calibrations": {
+            "estimated_ppfd": calibration,
+        },
     }
     validate_payload(payload)
     return payload, export_url
@@ -238,7 +288,30 @@ def validate_payload(payload: Any) -> None:
         raise RuntimeError("report source is missing the feeds array")
 
 
-def normalize_feed(feed: dict[str, Any], local_timezone: ZoneInfo) -> tuple[datetime, dict[str, Any]]:
+def light_calibration(payload: dict[str, Any]) -> dict[str, Any]:
+    calibrations = payload.get("calibrations")
+    candidate = calibrations.get("estimated_ppfd") if isinstance(calibrations, dict) else None
+    if not isinstance(candidate, dict):
+        candidate = DEFAULT_LIGHT_CALIBRATION
+    coefficient = finite_number(candidate.get("coefficient"))
+    if coefficient is None or coefficient <= 0:
+        raise RuntimeError("estimated PPFD calibration coefficient must be positive")
+    result = dict(candidate)
+    result["coefficient"] = coefficient
+    output = result.get("output") if isinstance(result.get("output"), dict) else {}
+    result["output"] = {
+        "metric": output.get("metric") or "estimated_ppfd",
+        "unit": output.get("unit") or "umol/m2/s",
+        "qualifier": "estimated",
+    }
+    return result
+
+
+def normalize_feed(
+    feed: dict[str, Any],
+    local_timezone: ZoneInfo,
+    ppfd_coefficient: float,
+) -> tuple[datetime, dict[str, Any]]:
     source_time = parse_timestamp(feed.get("created_at"))
     local_time = source_time.astimezone(local_timezone)
     normalized: dict[str, Any] = {
@@ -249,12 +322,22 @@ def normalize_feed(feed: dict[str, Any], local_timezone: ZoneInfo) -> tuple[date
     for source_name, output_name in NORMALIZED_FIELDS.items():
         normalized[output_name] = finite_number(
             feed.get(source_name),
-            integer=source_name in {"field4", "field6", "field8"},
+            integer=source_name in {"field4", "field6", "field8", "co2_concentration"},
         )
+    illuminance = normalized["illuminance"]
+    normalized["estimated_ppfd"] = (
+        round(illuminance * ppfd_coefficient, 3)
+        if illuminance is not None and illuminance >= 0
+        else None
+    )
     return local_time, normalized
 
 
-def normalize_feeds(feeds: Iterable[Any], local_timezone: ZoneInfo) -> list[tuple[datetime, dict[str, Any]]]:
+def normalize_feeds(
+    feeds: Iterable[Any],
+    local_timezone: ZoneInfo,
+    ppfd_coefficient: float,
+) -> list[tuple[datetime, dict[str, Any]]]:
     normalized: list[tuple[datetime, dict[str, Any]]] = []
     seen_entry_ids: set[int] = set()
     seen_reading_ids: set[str] = set()
@@ -262,7 +345,7 @@ def normalize_feeds(feeds: Iterable[Any], local_timezone: ZoneInfo) -> list[tupl
         if not isinstance(feed, dict):
             continue
         try:
-            local_time, record = normalize_feed(feed, local_timezone)
+            local_time, record = normalize_feed(feed, local_timezone, ppfd_coefficient)
         except (TypeError, ValueError):
             continue
         entry_id = record["entry_id"]
@@ -285,12 +368,13 @@ def normalize_feeds(feeds: Iterable[Any], local_timezone: ZoneInfo) -> list[tupl
 def number_stats(values: Iterable[int | float | None]) -> dict[str, int | float | None]:
     valid = [float(value) for value in values if isinstance(value, (int, float)) and math.isfinite(value)]
     if not valid:
-        return {"valid_count": 0, "min": None, "max": None, "mean": None}
+        return {"valid_count": 0, "min": None, "max": None, "mean": None, "median": None}
     return {
         "valid_count": len(valid),
         "min": round(min(valid), 3),
         "max": round(max(valid), 3),
         "mean": round(statistics.fmean(valid), 3),
+        "median": round(statistics.median(valid), 3),
     }
 
 
@@ -339,6 +423,19 @@ def light_summary(records: list[tuple[datetime, dict[str, Any]]]) -> dict[str, A
     }
 
 
+def estimated_dli(records: list[tuple[datetime, dict[str, Any]]]) -> float | None:
+    micromoles = 0.0
+    valid_intervals = 0
+    for index in range(len(records) - 1):
+        current_time, current = records[index]
+        duration = (records[index + 1][0] - current_time).total_seconds()
+        ppfd = current.get("estimated_ppfd")
+        if isinstance(ppfd, (int, float)) and math.isfinite(ppfd) and 0 < duration <= GAP_THRESHOLD_SECONDS:
+            micromoles += max(0.0, float(ppfd)) * duration
+            valid_intervals += 1
+    return round(micromoles / 1_000_000, 4) if valid_intervals else None
+
+
 def summarize_day(day_value: date, records: list[tuple[datetime, dict[str, Any]]]) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "date": day_value.isoformat(),
@@ -348,6 +445,7 @@ def summarize_day(day_value: date, records: list[tuple[datetime, dict[str, Any]]
     }
     for field in SUMMARY_FIELDS:
         summary[field] = number_stats(record[field] for _, record in records)
+    summary["estimated_dli_mol_m2_day"] = estimated_dli(records)
     summary["light"] = light_summary(records)
     summary["quality"] = interval_quality(records)
     return summary
@@ -393,6 +491,7 @@ def channel_metadata(channel: dict[str, Any], source_id: str) -> dict[str, Any]:
         "latitude": finite_number(channel.get("latitude")),
         "longitude": finite_number(channel.get("longitude")),
         "fields": fields,
+        "metrics": REPORT_METRICS,
     }
 
 
@@ -404,7 +503,10 @@ def build_report(
     now: datetime,
     local_timezone: ZoneInfo,
 ) -> dict[str, Any]:
-    normalized = normalize_feeds(payload["feeds"], local_timezone)
+    calibration = light_calibration(payload)
+    normalized = normalize_feeds(
+        payload["feeds"], local_timezone, float(calibration["coefficient"])
+    )
     yesterday = now.astimezone(local_timezone).date() - timedelta(days=1)
     seven_day_start = yesterday - timedelta(days=6)
     day_start = datetime.combine(yesterday, time.min, local_timezone)
@@ -424,6 +526,7 @@ def build_report(
         "generated_at": format_timestamp(now.astimezone(local_timezone)),
         "timezone": timezone_name(local_timezone),
         "channel": channel_metadata(payload["channel"], source_id),
+        "calibrations": {"estimated_ppfd": calibration},
         "period": {
             "yesterday": yesterday.isoformat(),
             "seven_day_start": seven_day_start.isoformat(),

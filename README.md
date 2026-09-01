@@ -104,6 +104,7 @@ are performed on site.
 - [Cultivation journal and photos](cloudflare-worker/JOURNAL.md)
 - [JMA observation archive](cloudflare-worker/WEATHER_ARCHIVE.md)
 - [Discord alerts](cloudflare-worker/ALERTS.md)
+- [Daily report bridge and CO₂/ePPFD interpretation](docs/DAILY_REPORT.md)
 - [Cloud platform roadmap](ROADMAP.md)
 - [Multi-node integration guide](MULTI_NODE_INTEGRATION.md)
 - [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)
