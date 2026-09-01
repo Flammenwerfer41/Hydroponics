@@ -2,10 +2,18 @@
 
 일일 보고서는 아래의 공개 브리지 JSON을 기본 데이터 소스로 사용한다.
 
-- `https://flammenwerfer41.github.io/Hydroponics/report-data.json`
+- 기본 URL: `https://flammenwerfer41.github.io/Hydroponics/report-data.json`
+- 자동 보고서 URL: `https://flammenwerfer41.github.io/Hydroponics/report-data.json?date=YYYY-MM-DD`
+  - `YYYY-MM-DD`에는 분석 대상인 전날의 JST 날짜를 넣는다.
+  - 매일 고유한 URL을 사용해 웹 리더와 CDN이 전날 응답을 재사용하는 것을 방지한다.
+- Pages 응답의 날짜가 맞지 않을 때만 저장소 원본을 한 번 확인한다:
+  `https://raw.githubusercontent.com/Flammenwerfer41/Hydroponics/main/docs/report-data.json?date=YYYY-MM-DD`
+- 저장소 원본도 최신이 아닐 때에만 기존 ThingSpeak 보조 조회로 넘어간다.
 - 기준 시간대: `Asia/Tokyo`
 - 분석 기간: 전날 달력 날짜와 전날을 포함한 최근 7일
-- 생성 시각: 매일 JST 01:30 GitHub Actions
+- 예약 시각: 매일 JST 00:10 GitHub Actions
+  - GitHub 예약 작업은 혼잡할 때 실제 시작이 늦어질 수 있으므로 오전 보고서보다 충분히 일찍 예약한다.
+  - JSON의 `generated_at`과 `period.yesterday`가 실제 성공 여부의 기준이며 예약 시각 자체를 신뢰하지 않는다.
 
 ## 스키마 2의 센서와 파생값
 

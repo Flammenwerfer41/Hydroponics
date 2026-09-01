@@ -2,8 +2,10 @@ name: Update report data
 
 on:
   schedule:
-    # 01:30 JST (the previous day is complete); GitHub cron uses UTC.
-    - cron: "30 16 * * *"
+    # 00:10 JST. GitHub scheduled jobs can start hours late, so leave a wide
+    # margin before the morning ChatGPT report while still targeting a
+    # completed previous calendar day. GitHub cron uses UTC.
+    - cron: "10 15 * * *"
   workflow_dispatch:
 
 permissions:
