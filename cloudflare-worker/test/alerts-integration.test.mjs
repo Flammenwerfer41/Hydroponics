@@ -107,6 +107,45 @@ test("opens a persisted warning from the latest valid sensor value", async () =>
   assert.equal(database.batches.some(({ sql }) => sql.includes("INSERT INTO alert_rule_states")), true);
 });
 
+test("opens a high CO2 ventilation warning from the latest valid reading", async () => {
+  const database = new AlertDatabase();
+  database.rules = [{
+    id: "high-co2",
+    alert_type: "high_co2_concentration",
+    title_ko: "실내 CO₂ 환기 필요",
+    title_ja: "室内CO₂換気が必要",
+    metric: "co2_concentration",
+    unit: "ppm",
+    direction: "high",
+    warning_enter: 1500,
+    warning_exit: 1200,
+    critical_enter: 2500,
+    critical_exit: 2000,
+    warning_duration_seconds: 0,
+    critical_duration_seconds: 0,
+    recovery_duration_seconds: 0,
+    config_json: "{}"
+  }];
+  database.readingRows = [{
+    id: 1,
+    measured_at: "2026-09-01T00:00:00.000Z",
+    received_at: "2026-09-01T00:00:01.000Z",
+    metric: "co2_concentration",
+    value: 1680,
+    quality: "valid"
+  }];
+
+  const result = await evaluateAlerts(
+    { HYDROPONICS_DB: database },
+    new Date("2026-09-01T00:01:00.000Z")
+  );
+
+  assert.equal(result.events.length, 1);
+  assert.equal(result.events[0].payload.alert_type, "high_co2_concentration");
+  assert.equal(result.events[0].payload.value, 1680);
+  assert.equal(result.events[0].payload.unit, "ppm");
+});
+
 test("returns minimized active warnings from the public endpoint", async () => {
   const database = new AlertDatabase();
   database.publicAlerts = [{

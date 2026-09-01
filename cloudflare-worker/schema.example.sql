@@ -22,6 +22,7 @@ VALUES
 INSERT INTO sensors
   (id, device_id, zone_id, name, metric, model, connection, installed_at, created_at, updated_at)
 VALUES
-  ('tower-01-bme280-temperature', 'esp32-01', 'tower-01', 'Tower 1 air temperature', 'air_temperature', 'BME280', 'I2C SDA18 SCL19', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z'),
-  ('tower-01-ds18b20-water', 'esp32-01', 'tower-01', 'Tower 1 water temperature', 'water_temperature', 'DS18B20', 'OneWire GPIO21', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z');
-
+  ('tower-01-bme280-temperature', 'esp32-01', 'tower-01', 'Tower 1 air temperature', 'air_temperature', 'BME280', 'I2C0 SDA23 SCL22', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z'),
+  ('tower-01-ds18b20-water', 'esp32-01', 'tower-01', 'Tower 1 water temperature', 'water_temperature', 'DS18B20', 'OneWire GPIO15', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z', '2026-08-09T00:00:00Z'),
+  ('tower-01-scd40-co2', 'esp32-01', 'tower-01', 'Tower 1 CO2 concentration', 'co2_concentration', 'SCD40', 'I2C1 SDA26 SCL27; VIN 5V', '2026-08-31T00:00:00Z', '2026-08-31T00:00:00Z', '2026-08-31T00:00:00Z'),
+  ('tower-01-veml7700-illuminance', 'esp32-01', 'tower-01', 'Tower 1 illuminance', 'illuminance', 'VEML7700', 'I2C0 SDA23 SCL22; 3.3V', '2026-08-31T00:00:00Z', '2026-08-31T00:00:00Z', '2026-08-31T00:00:00Z');

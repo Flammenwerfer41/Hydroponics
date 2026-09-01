@@ -16,9 +16,21 @@ failure-isolated so an alert-provider outage cannot interrupt sensor storage or 
 | High VPD | 2.5 kPa for 30 min | 3.0 kPa for 15 min | below 2.3/2.7 kPa for 15 min |
 | High water temperature | 28 °C for 30 min | 30 °C for 15 min | below 27.5/29 °C for 15 min |
 | Low water temperature | 18 °C for 30 min | 15 °C for 15 min | above 19/16 °C for 15 min |
+| High indoor CO₂ | 1,500 ppm for 30 min | 2,500 ppm for 15 min | below 1,200/2,000 ppm for 15 min |
 
 The missing-value rules cover air temperature, humidity, pressure and water
-temperature. Wi-Fi signal quality is intentionally not an alert source.
+temperature, CO₂ concentration and illuminance. Wi-Fi signal quality is
+intentionally not an alert source.
+
+The high-CO₂ rule is a persistent ventilation alert for the occupied studio rather
+than a crop-toxicity threshold. Japan's building environmental hygiene standard
+uses 1,000 ppm as the indoor-air management reference; this system uses a higher,
+timed entry threshold to reduce short occupancy-related notification noise. See the
+[Ministry of Health, Labour and Welfare standard](https://www.mhlw.go.jp/bunya/kenkou/seikatsu-eisei10/index.html).
+
+Estimated PPFD is not an alert source. It is derived from VEML7700 lux with a
+grow-light-specific coefficient, not measured by a PAR sensor, and crop-stage and
+photoperiod targets are not yet represented in the alert configuration.
 
 ## State and delivery
 

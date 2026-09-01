@@ -29,6 +29,10 @@ observation storage and the single latest-forecast cache in `weather_records`.
 incident history and an idempotent Discord notification outbox. The initial rules
 cover data gaps, per-sensor missing values, grow-light mismatches and sustained
 air-temperature, VPD and nutrient-water-temperature risk.
+`0011_sensor_registry_and_co2_alerts.sql` registers the installed SCD40 and
+VEML7700, corrects the production wiring metadata and adds missing-value rules for
+both sensors. It also adds a sustained high-CO2 ventilation warning and critical
+escalation; PPFD remains an estimated reporting metric rather than an alert source.
 
 The schema supports the current single vertical tower and additional sites, zones,
 slots, devices and sensors without adding measurement-specific columns. A sensor
