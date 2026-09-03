@@ -1,5 +1,6 @@
 export const LIGHT_ACTUATOR_ID = "tower-01-grow-light";
 export const AC_ACTUATOR_ID = "room-air-conditioner";
+const SENSOR_SNAPSHOT_LOOKBACK = 30;
 
 function rows(result) {
   return Array.isArray(result?.results) ? result.results : [];
@@ -146,17 +147,25 @@ export async function recentCommands(database, limit = 20) {
 
 export async function latestSensorSnapshot(database) {
   const result = await database.prepare(`
-    WITH ranked AS (
-      SELECT mv.metric, mv.value, mv.quality, r.measured_at,
-        ROW_NUMBER() OVER (PARTITION BY mv.metric ORDER BY r.measured_at DESC, r.id DESC) AS rank
-      FROM measurement_values mv
-      JOIN readings r ON r.id = mv.reading_pk
-      WHERE r.device_id = 'esp32-01'
-        AND mv.metric IN ('air_temperature', 'humidity', 'water_temperature', 'wifi_rssi')
+    WITH recent AS MATERIALIZED (
+      SELECT id, measured_at
+      FROM readings
+      WHERE device_id = ?1
+      ORDER BY measured_at DESC, id DESC
+      LIMIT ?2
+    ), ranked AS (
+      SELECT mv.metric, mv.value, mv.quality, recent.measured_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY mv.metric
+          ORDER BY recent.measured_at DESC, recent.id DESC
+        ) AS rank
+      FROM recent
+      CROSS JOIN measurement_values mv ON mv.reading_pk = recent.id
+      WHERE mv.metric IN ('air_temperature', 'humidity', 'water_temperature', 'wifi_rssi')
         AND mv.quality = 'valid'
     )
     SELECT metric, value, quality, measured_at FROM ranked WHERE rank = 1
-  `).all();
+  `).bind('esp32-01', SENSOR_SNAPSHOT_LOOKBACK).all();
   return Object.fromEntries(rows(result).map((row) => [row.metric, {
     value: row.value,
     quality: row.quality,
