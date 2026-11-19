@@ -15,6 +15,7 @@ import {
   queryAggregates,
   queryExportRows,
   queryLatestReading,
+  queryNightClosing,
   queryRawReadings
 } from "./query.js";
 
@@ -80,6 +81,8 @@ function publicReading(reading) {
     quality: reading.quality,
     diagnostics: reading.diagnostics
   };
+  if (reading.station_schedule) output.station_schedule = reading.station_schedule;
+  if (reading.astronomy) output.astronomy = reading.astronomy;
   const derived = deriveLightMetrics(reading);
   if (derived) output.derived = derived;
   return output;
@@ -124,7 +127,9 @@ async function cachedResponse(request, context, seconds, createResponse) {
 
 async function latestResponse(database, query) {
   const reading = await queryLatestReading(database, query);
-  return jsonResponse({ ...generatedEnvelope(query), reading: publicReading(reading) }, 200, {
+  const closing = query.deviceId && query.metrics.includes('battery_voltage')
+    ? { night_closing: publicReading(await queryNightClosing(database, query)) } : {};
+  return jsonResponse({ ...generatedEnvelope(query), reading: publicReading(reading), ...closing }, 200, {
     "Cache-Control": `public, max-age=${CACHE_SECONDS.latest}`
   });
 }

@@ -6,6 +6,8 @@
 
   window.HYDROPONICS_CONFIG = Object.freeze({
     dataApiBaseUrl,
+    // Balcony sensor commissioning confirmed; JMA remains an independent source.
+    balconyWeatherEnabled: true,
     weatherApiUrl: `${dataApiBaseUrl}/v1/current`
   });
 })();

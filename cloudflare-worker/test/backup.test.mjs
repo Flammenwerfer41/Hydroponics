@@ -10,6 +10,7 @@ import {
   parseWranglerJson,
   previousJstDate,
   sha256,
+  snapshotTables,
   tableCountQuery,
   verifyArtifact
 } from "../scripts/backup-support.mjs";
@@ -64,4 +65,19 @@ test("count comparison identifies changed and missing tables", () => {
   assert.deepEqual(compareTableCounts(expected, actual), [
     { table: "readings", source: 0, restored: 2 }
   ]);
+});
+
+test("station counts are included only for snapshots with migration 0012", () => {
+  assert.deepEqual(snapshotTables(Buffer.from("CREATE TABLE readings (id INTEGER);")), DATABASE_TABLES);
+  const tables = snapshotTables(Buffer.from('CREATE TABLE "station_releases" (sha256 TEXT);\nCREATE TABLE IF NOT EXISTS `station_control` (device_id TEXT);'));
+  assert.ok(tables.includes("station_releases")); assert.ok(tables.includes("station_control"));
+  assert.ok(!tables.includes("station_events"));
+  assert.ok(snapshotTables(Buffer.from('CREATE TABLE station_events (id TEXT);')).includes("station_events"));
+  assert.ok(snapshotTables(Buffer.from('CREATE TABLE station_policy_events (id TEXT);')).includes('station_policy_events'));
+  assert.ok(snapshotTables(Buffer.from('CREATE TABLE station_night_closings (device_id TEXT);')).includes('station_night_closings'));
+  for (const table of ['station_experiments','station_experiment_chunks','station_experiment_events'])
+    assert.ok(snapshotTables(Buffer.from(`CREATE TABLE ${table} (id TEXT);`)).includes(table));
+  const before = Object.fromEntries(tables.map(table => [table, 0]));
+  assert.deepEqual(compareTableCounts(before, { ...before, station_control: 1 }),
+    [{ table: "station_control", source: 0, restored: 1 }]);
 });

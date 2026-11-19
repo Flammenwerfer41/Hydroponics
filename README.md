@@ -107,6 +107,8 @@ are performed on site.
 - [Daily report bridge and CO₂/ePPFD interpretation](docs/DAILY_REPORT.md)
 - [Cloud platform roadmap](ROADMAP.md)
 - [Multi-node integration guide](MULTI_NODE_INTEGRATION.md)
+- [Solar balcony station v1: firmware and signed pull OTA](weather-station/README.md) — server enabled, authenticated USB installation verified; first OTA test pending
+- [Station OTA release and recovery runbook](weather-station/OTA_OPERATIONS.md)
 - [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)
 
 The original monolithic Arduino sketch is preserved in `legacy_arduino/`.

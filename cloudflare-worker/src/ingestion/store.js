@@ -9,7 +9,9 @@ function canonicalReading(reading) {
     measured_at: reading.measuredAt,
     firmware_version: reading.firmwareVersion,
     reset_reason: reading.resetReason,
-    values: reading.values
+    values: reading.values,
+    ...(reading.stationSchedule ? { station_schedule: reading.stationSchedule } : {}),
+    ...(reading.astronomy ? { astronomy: reading.astronomy } : {})
   });
 }
 
@@ -25,8 +27,8 @@ export async function persistReading(
     database.prepare(`
       INSERT OR IGNORE INTO readings (
         device_id, reading_id, boot_id, sequence, measured_at, received_at,
-        firmware_version, reset_reason, payload_sha256, remote_address_hash
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        firmware_version, reset_reason, payload_sha256, remote_address_hash, station_schedule, astronomy
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
     `).bind(
       deviceId,
       reading.readingId,
@@ -37,7 +39,9 @@ export async function persistReading(
       reading.firmwareVersion,
       reading.resetReason,
       payloadHash,
-      remoteAddressHash
+      remoteAddressHash,
+      reading.stationSchedule ? JSON.stringify(reading.stationSchedule) : null,
+      reading.astronomy ? JSON.stringify(reading.astronomy) : null
     )
   ];
 
@@ -69,6 +73,13 @@ export async function persistReading(
       AND r.payload_sha256 = ?${identityParameter + 2}
   `).bind(...valueBindings, deviceId, reading.readingId, payloadHash));
 
+  if (reading.astronomy?.night_closing) {
+    const date=new Date(Date.parse(reading.measuredAt)+9*3600000).toISOString().slice(0,10);
+    statements.push(database.prepare(`INSERT INTO station_night_closings (device_id,closing_date,reading_pk,measured_at)
+      SELECT device_id,?4,id,measured_at FROM readings WHERE device_id=?1 AND reading_id=?2 AND payload_sha256=?3
+      ON CONFLICT(device_id,closing_date) DO UPDATE SET reading_pk=excluded.reading_pk,measured_at=excluded.measured_at
+      WHERE excluded.measured_at < station_night_closings.measured_at`).bind(deviceId,reading.readingId,payloadHash,date));
+  }
   const results = await database.batch(statements);
   const inserted = Number(results[0]?.meta?.changes ?? 0) > 0;
   const existing = await database.prepare(`

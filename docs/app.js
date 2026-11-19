@@ -1,5 +1,7 @@
 "use strict";
 
+import { BALCONY_QUERY, createOutdoorPanel } from "./dashboard/outdoor.js?v=20261117-policy";
+
 import {
   calculateDerivedMetrics,
   DAY_MS,
@@ -39,6 +41,7 @@ const HISTORY_FULL_REFRESH_MS = 60 * 60_000;
 const RAW_HISTORY_OVERLAP_MS = 10 * 60_000;
 const AGGREGATE_HISTORY_OVERLAP_MS = 2 * 60 * 60_000;
 const WEATHER_REFRESH_MS = 15 * 60_000;
+const BALCONY_WEATHER_ENABLED = globalThis.HYDROPONICS_CONFIG?.balconyWeatherEnabled === true;
 const REQUEST_TIMEOUT_MS = 15_000;
 const JST_TIME_ZONE = "Asia/Tokyo";
 const LANGUAGE_STORAGE_KEY = "hydroponics-language";
@@ -486,10 +489,22 @@ const state = {
   weatherEnabled: false,
   weatherData: null,
   weatherStatus: "loading",
+  balconyController: null,
+  balconyData: null,
+  balconyStatus: "loading",
   charts: {}
 };
 
 const element = (id) => document.getElementById(id);
+const outdoorPanel = BALCONY_WEATHER_ENABLED
+  ? createOutdoorPanel(document.querySelector(".v2-weather")) : null;
+
+function renderOutdoorPanel() {
+  outdoorPanel?.({
+    balcony: state.balconyData, balconyStatus: state.balconyStatus,
+    jma: state.weatherData, jmaStatus: state.weatherStatus, language: state.language
+  });
+}
 
 function initialLanguage() {
   try {
@@ -772,6 +787,11 @@ function renderForecast(forecast) {
 }
 
 function renderWeather(data) {
+  if (outdoorPanel) {
+    renderOutdoorPanel();
+    renderForecast(data.forecast);
+    return;
+  }
   const current = data?.current;
   if (!current) throw new Error("Invalid weather response");
   const temperature = finiteNumber(current.temperature);
@@ -803,6 +823,12 @@ function renderWeather(data) {
 }
 
 function renderWeatherUnavailable() {
+  if (outdoorPanel) {
+    renderOutdoorPanel();
+    element("forecastPeriods").replaceChildren();
+    element("forecastStatus").textContent = t("forecast.unavailable");
+    return;
+  }
   element("weatherIcon").textContent = "·";
   element("weatherDescription").textContent = t("weather.unavailable");
   element("weatherUpdated").textContent = t(
@@ -814,6 +840,8 @@ function renderWeatherUnavailable() {
 
 async function refreshWeather() {
   if (document.hidden || !state.weatherEnabled) return;
+  // Independent requests: either source can remain usable when the other fails.
+  const balconyRequest = outdoorPanel ? refreshBalconyWeather() : Promise.resolve();
 
   try {
     if (!WEATHER_API_URL) throw new Error("JMA Worker URL is not configured");
@@ -829,7 +857,22 @@ async function refreshWeather() {
       state.weatherStatus = "error";
       renderWeatherUnavailable();
     }
+  } finally {
+    await balconyRequest;
   }
+}
+
+async function refreshBalconyWeather() {
+  try {
+    const data = await fetchJson(dataApiUrl(BALCONY_QUERY), "balconyController");
+    if (!data || !("reading" in data)) throw new Error("Invalid balcony response");
+    state.balconyData = data;
+    state.balconyStatus = "ready";
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    state.balconyStatus = "error";
+  }
+  renderOutdoorPanel();
 }
 
 function enableWeather() {
@@ -1008,6 +1051,7 @@ function renderCurrent(snapshot) {
 
 async function refreshCurrent() {
   if (document.hidden) return;
+  renderOutdoorPanel(); // Re-evaluate observation age without another station request.
   const sequence = ++state.currentSequence;
   refreshAlerts();
   try {
@@ -1704,6 +1748,7 @@ function stopPolling() {
   if (state.currentController) state.currentController.abort();
   if (state.historyController) state.historyController.abort();
   if (state.weatherController) state.weatherController.abort();
+  if (state.balconyController) state.balconyController.abort();
 }
 
 function startPolling() {
@@ -1740,6 +1785,7 @@ function setLanguage(language, persist = true) {
   state.language = language === "ja" ? "ja" : "ko";
   document.documentElement.lang = state.language;
   translateStaticContent();
+  renderOutdoorPanel();
   updatePressureDisclosureLabel();
 
   document.querySelectorAll(".language-button").forEach((button) => {

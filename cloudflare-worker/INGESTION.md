@@ -53,6 +53,7 @@ The initial metric names and units are:
 | `air_temperature` | `degC` |
 | `humidity` | `percent` |
 | `pressure` | `hPa` |
+| `battery_voltage` | `V` (balcony station; 2–4.5 V, out-of-range marked invalid) |
 | `wifi_rssi` | `dBm` |
 | `water_temperature` | `degC` |
 | `light_status` | `state` (0 or 1) |

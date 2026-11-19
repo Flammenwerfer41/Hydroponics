@@ -331,6 +331,51 @@
   border-top: 1px solid rgba(67, 113, 96, 0.18);
 }
 
+/* Dormant until balconyWeatherEnabled is explicitly enabled. */
+.hybrid-scene .v2-weather.balcony-weather-panel {
+  bottom: 3%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.hybrid-scene .balcony-weather-panel .outdoor-heading,
+.hybrid-scene .balcony-weather-panel .outdoor-jma-heading {
+  margin: 0 0 7px;
+  color: #315e4d;
+  text-align: center;
+  font-size: clamp(0.5rem, 0.9vw, 0.85rem);
+}
+.hybrid-scene .balcony-weather-panel .outdoor-jma-heading { margin-top: 10px; }
+.hybrid-scene .balcony-weather-panel .v2-mini { flex-wrap: wrap; }
+.hybrid-scene .balcony-weather-panel .v2-mini > small {
+  flex-basis: 100%;
+  color: #536e64;
+  font-size: clamp(0.33rem, 0.65vw, 0.6rem);
+  text-align: center;
+}
+.hybrid-scene .balcony-weather-panel[data-observation-status="stale"] .outdoor-status,
+.hybrid-scene .balcony-weather-panel[data-observation-status="error"] .outdoor-status {
+  color: #93541d;
+}
+.hybrid-scene .outdoor-comparison {
+  margin-top: 8px;
+  color: #315e4d;
+  font-size: clamp(0.4rem, 0.7vw, 0.7rem);
+}
+.hybrid-scene .outdoor-comparison summary { cursor: pointer; padding: 6px 0; }
+.hybrid-scene .outdoor-comparison summary:focus-visible { outline: 2px solid #23806a; outline-offset: 2px; }
+.hybrid-scene .outdoor-comparison-body {
+  /* The outer column scrolls if needed; avoid nested scroll regions. */
+  padding: 7px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+}
+.hybrid-scene .outdoor-comparison table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.hybrid-scene .outdoor-comparison th,
+.hybrid-scene .outdoor-comparison td { padding: 5px 2px; text-align: right; overflow-wrap: anywhere; }
+.hybrid-scene .outdoor-comparison th:first-child { text-align: left; }
+.hybrid-scene .outdoor-comparison p { line-height: 1.5; }
+.hybrid-scene .outdoor-comparison a { color: inherit; }
+
 .hybrid-scene .forecast-heading {
   display: flex;
   align-items: baseline;

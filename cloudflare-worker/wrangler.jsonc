@@ -28,6 +28,10 @@
     {
       "binding": "JOURNAL_PHOTOS",
       "bucket_name": "hydroponics-journal-photos"
+    },
+    {
+      "binding": "STATION_FIRMWARE",
+      "bucket_name": "hydroponics-station-firmware"
     }
   ],
   "ratelimits": [

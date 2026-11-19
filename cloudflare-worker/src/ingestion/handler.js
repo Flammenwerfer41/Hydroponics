@@ -2,6 +2,7 @@ import { authenticateDevice, sha256Hex } from "./auth.js";
 import { ReadingValidationError, normalizeReading } from "./contract.js";
 import { persistReading } from "./store.js";
 import { jsonResponse, preflightResponse } from "../http/response.js";
+import { stationControl, recordStationStatus } from "../station/handler.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 // D1 Free allows 50 queries per Worker invocation. Each reading uses two batched
@@ -155,6 +156,9 @@ export async function handleIngestion(request, environment, context, path) {
         400
       );
     }
+    // A nightly closing adds one indexed write. Keep the entire invocation within D1 Free's query budget.
+    if (body.readings.reduce((cost, reading) => cost + (reading?.astronomy?.night_closing ? 4 : 3), 0) > 45)
+      return errorResponse('invalid_batch_size','Too many closing records; split this batch',400);
     inputs = body.readings;
   } else {
     inputs = [body];
@@ -185,10 +189,25 @@ export async function handleIngestion(request, environment, context, path) {
 
   if (!bulk) {
     const result = results[0];
+    let station = {};
+    // Opt-in only: tower clients retain their existing response and query count.
+    if (request.headers.get("X-Station-Protocol") === "1") {
+      try {
+        const control = await stationControl(environment.HYDROPONICS_DB, device.device_id, now);
+        if (control) {
+          if (body.station_status) await recordStationStatus(environment.HYDROPONICS_DB, device.device_id, body.station_status);
+          station = { station_control: control };
+        }
+      } catch (error) {
+        // Telemetry acknowledgement must survive missing management migrations/configuration.
+        console.warn("Station control unavailable", error);
+      }
+    }
     return apiResponse({
       schema_version: 1,
       device_id: device.device_id,
-      ...result
+      ...result,
+      ...station
     }, responseStatusFor(result));
   }
 

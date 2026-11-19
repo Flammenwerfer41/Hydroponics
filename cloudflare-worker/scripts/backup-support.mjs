@@ -133,6 +133,16 @@ export function tableCountQuery(tables = DATABASE_TABLES) {
     .join("; ");
 }
 
+// Optional migrations must not break backups before they have been deployed.
+// Full SQL export already includes these tables; extend count verification only
+// when their CREATE TABLE definitions are present in that exact snapshot.
+export function snapshotTables(sql) {
+  const source = sql.toString("utf8");
+  const optional = ["station_releases", "station_control", "station_events", "station_policy_events", "station_night_closings", "station_experiments", "station_experiment_chunks", "station_experiment_events", "station_experiment_drafts"].filter(table =>
+    new RegExp(`^\\s*CREATE TABLE(?: IF NOT EXISTS)? [\\x22\\x27\\x60\\[]?${table}[\\x22\\x27\\x60\\]]?\\s*\\(`, "im").test(source));
+  return [...DATABASE_TABLES, ...optional];
+}
+
 export function normalizeCountRows(payload) {
   const blocks = Array.isArray(payload) ? payload : [payload];
   const rows = blocks.flatMap((block) => block?.results ?? block?.result?.[0]?.results ?? []);
@@ -144,7 +154,7 @@ export function normalizeCountRows(payload) {
 
 export function compareTableCounts(expected, actual) {
   const mismatches = [];
-  for (const table of DATABASE_TABLES) {
+  for (const table of new Set([...DATABASE_TABLES, ...Object.keys(expected ?? {})])) {
     const source = Number(expected?.[table] ?? -1);
     const restored = Number(actual?.[table] ?? -1);
     if (source !== restored) mismatches.push({ table, source, restored });

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "sample_interval_ms": 50,
+  "steps": [
+    { "action": "idle", "duration_ms": 2000 },
+    { "action": "cpu_load", "duration_ms": 2000 },
+    { "action": "wifi_connect", "duration_ms": 8000 },
+    { "action": "network_probe", "duration_ms": 6000 },
+    { "action": "wifi_stop", "duration_ms": 100 },
+    { "action": "idle", "duration_ms": 5000 }
+  ]
+}

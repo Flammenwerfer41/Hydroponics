@@ -45,6 +45,8 @@ function emptyReading(row) {
     received_at: row.received_at,
     firmware_version: row.firmware_version,
     reset_reason: row.reset_reason,
+    ...(row.station_schedule ? { station_schedule: JSON.parse(row.station_schedule) } : {}),
+    ...(row.astronomy ? { astronomy: JSON.parse(row.astronomy) } : {}),
     values: {},
     quality: {},
     diagnostics: {}
@@ -85,7 +87,7 @@ export async function queryRawReadings(database, query) {
   const result = await database.prepare(`
     WITH selected AS (
       SELECT r.id, r.reading_id, r.device_id, d.site_id, d.zone_id,
-        r.measured_at, r.received_at, r.firmware_version, r.reset_reason
+        r.measured_at, r.received_at, r.firmware_version, r.reset_reason, r.station_schedule, r.astronomy
       FROM readings r
       JOIN devices d ON d.id = r.device_id
       WHERE ${filters.sql}
@@ -104,6 +106,18 @@ export async function queryRawReadings(database, query) {
 export async function queryLatestReading(database, query) {
   const raw = await queryRawReadings(database, { ...query, limit: 1, cursor: null });
   return raw.readings[0] ?? null;
+}
+export async function queryNightClosing(database, query) {
+  if (!query.deviceId || !query.metrics.includes('battery_voltage')) return null;
+  const date = stamp => new Date(Date.parse(stamp)+9*3600000).toISOString().slice(0,10);
+  const result = await database.prepare(`WITH chosen AS (
+    SELECT reading_pk FROM station_night_closings WHERE device_id=? AND closing_date>=? AND closing_date<=? AND measured_at>=? AND measured_at<?
+    ORDER BY closing_date DESC LIMIT 1)
+    SELECT r.*,d.site_id,d.zone_id,mv.metric,mv.value,mv.quality,mv.diagnostic FROM chosen c
+    JOIN readings r ON r.id=c.reading_pk JOIN devices d ON d.id=r.device_id
+    LEFT JOIN measurement_values mv ON mv.reading_pk=r.id AND mv.metric IN ('battery_voltage','air_temperature')`)
+    .bind(query.deviceId,date(query.from),date(query.to),query.from,query.to).all();
+  return groupReadingRows(resultRows(result)).readings[0] ?? null;
 }
 
 function bucketExpression(granularity) {
@@ -195,7 +209,7 @@ export async function queryExportRows(database, query) {
   const filters = buildFilters(query);
   const result = await database.prepare(`
     SELECT r.id, r.reading_id, r.device_id, d.site_id, d.zone_id,
-      r.measured_at, r.received_at, r.firmware_version, r.reset_reason,
+      r.measured_at, r.received_at, r.firmware_version, r.reset_reason, r.station_schedule, r.astronomy,
       ${exportMetricColumns(query.metrics)}
     FROM readings r
     JOIN devices d ON d.id = r.device_id
@@ -241,7 +255,7 @@ function csvCell(value) {
 export function exportRowsToCsv(rows, metrics) {
   const metadata = [
     "reading_id", "device_id", "site_id", "zone_id", "measured_at", "received_at",
-    "firmware_version", "reset_reason"
+    "firmware_version", "reset_reason", "station_schedule", "astronomy"
   ];
   const metricColumns = metrics.flatMap((metric) => [
     metric, `${metric}_quality`, `${metric}_diagnostic`

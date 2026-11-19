@@ -19,6 +19,7 @@ import {
   normalizeCountRows,
   parseWranglerJson,
   previousJstDate,
+  snapshotTables,
   tableCountQuery
 } from "./backup-support.mjs";
 
@@ -106,7 +107,7 @@ async function main() {
     const countsOutput = wrangler([
       "d1", "execute", DATABASE,
       "--local", "--persist-to", validationPersistence, "--json",
-      "--command", tableCountQuery()
+      "--command", tableCountQuery(snapshotTables(sql))
     ]);
     const tableCounts = normalizeCountRows(parseWranglerJson(countsOutput));
 

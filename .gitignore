@@ -10,3 +10,9 @@ __pycache__/
 # Device credentials must never be committed.
 include/secrets.h
 secrets.txt
+weather-station/.pio/
+weather-station/sdkconfig.*
+!weather-station/sdkconfig.defaults
+weather-station/include/secrets.h
+weather-station/keys/
+weather-station/releases/

@@ -1,4 +1,5 @@
 import { handleIngestion } from "./ingestion/handler.js";
+import { handleStationAdmin, handleStationDevice } from "./station/handler.js";
 import { jsonResponse as sharedJsonResponse, publicCorsHeaders } from "./http/response.js";
 import {
   handleAdminExport,
@@ -92,6 +93,12 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
 
 async function routeRequest(request, environment, context) {
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if (path === "/admin/api/stations" || path.startsWith("/admin/api/stations/")) {
+      return handleStationAdmin(request, environment, path);
+    }
+    if (path.startsWith("/v1/station/")) {
+      return handleStationDevice(request, environment, path);
+    }
     if (isAdminExportRoute(path)) {
       return handleAdminExport(request, environment, path);
     }

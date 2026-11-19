@@ -7,6 +7,7 @@ import {
   compareTableCounts,
   normalizeCountRows,
   parseWranglerJson,
+  snapshotTables,
   tableCountQuery,
   verifyArtifact
 } from "./backup-support.mjs";
@@ -66,7 +67,7 @@ try {
   const countOutput = wrangler([
     "d1", "execute", DATABASE,
     "--local", "--persist-to", persistencePath,
-    "--json", "--command", tableCountQuery()
+    "--json", "--command", tableCountQuery(snapshotTables(sql))
   ]);
   const restoredCounts = normalizeCountRows(parseWranglerJson(countOutput));
   const mismatches = compareTableCounts(manifest.snapshot_table_counts, restoredCounts);

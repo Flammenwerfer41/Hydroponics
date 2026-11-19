@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+  <title>기상대 관리 · Station Control</title><link rel="stylesheet" href="../../weather/station.css?v=20261119-v2">
+  <script type="module" src="station.js?v=20261119-v2"></script>
+</head><body><main>
+  <nav><a href="../">재배 환경 관리</a><a href="../../weather/">기상대 관측</a></nav>
+  <header class="station-hero"><p class="eyebrow">BALCONY WEATHER · CONTROL</p><h1>기상대 운영실</h1><p>관측은 꾸준하게, 변경과 실험은 명확하게.</p><span class="badge">관리자 전용</span></header>
+  <nav class="section-nav" aria-label="관리 섹션"><a href="#overview">장치 현황</a><a href="#operation">운용 설정</a><a href="#experiments">실험실</a><a href="#firmware-section">펌웨어</a></nav>
+  <p id="notice" role="status">인증 상태를 확인하는 중입니다.</p>
+  <label>장치 <select id="device"></select></label>
+  <section id="overview" class="panel"><p class="eyebrow">DEVICE STATUS · 마지막 보고 기준</p><h2>장치 현황</h2>
+    <div class="status-grid"><article><h3>실행 보고 버전</h3><strong id="reported-version">--</strong><p id="reported-time" class="hint">--</p></article>
+      <article><h3>승인된 목표 버전</h3><strong id="target-version">--</strong><p>승인과 설치 완료는 별개입니다.</p></article>
+      <article><h3>전력 · 운용 모드</h3><strong id="power-mode">--</strong><p id="power-detail">--</p></article>
+      <article><h3>실험 상태</h3><strong id="experiment-state">--</strong><p id="experiment-detail">--</p></article></div>
+    <p id="deployment" class="callout">--</p><p id="readiness" class="hint">--</p>
+    <details><summary>현재 보고 버전의 기능과 보호 정책</summary><ul id="capabilities"></ul><p class="hint">펌웨어 버전 기준 지원 정보이며, 개별 기능의 실기 검증 완료를 뜻하지 않습니다.</p></details>
+  </section>
+  <section id="operation" class="panel"><p class="eyebrow">OPERATION</p><h2>관측 주기</h2>
+    <p id="schedule-state" role="status">장치의 적용 상태를 확인하는 중입니다.</p>
+    <label>통상 관측 주기 <select id="normal-period">
+      <option value="300">5분</option><option value="600">10분</option><option value="900">15분</option>
+      <option value="1800">30분</option><option value="3600">60분</option>
+    </select></label>
+    <button id="save-period">주기 설정 저장</button>
+    <p class="hint">1.1.0 이상에서 다음 통신 때 적용하고 장치에 저장합니다. 서버는 통상 주기를 제안하며 최종 주기는 장치가 결정합니다.
+      비상 상태는 60분 주기입니다. 3.3V 이하 또는 전압 측정 실패 시 진입하고, 서로 다른 기상 주기에 3.5V 이상을 두 번 확인하면 해제합니다.</p>
+  </section>
+  <section class="panel"><h2>온라인 유지</h2>
+    <p>요청은 1시간 동안 유효합니다. 다음 기상 때부터 15분간 유지하며, 다시 요청하면 새 요청으로 연장됩니다.</p>
+    <button data-action="maintenance">15분 유지보수 요청 · 연장</button>
+    <button data-action="stop">유지보수 종료 요청</button>
+    <details><summary>원시 상태 · 진단 정보</summary><pre id="state">--</pre></details>
+  </section>
+  <section id="experiments" class="panel"><p class="eyebrow">EXPERIMENT LAB · FIRMWARE 2.0+</p><h2>실험 초안과 결과</h2>
+    <p>실험 규격은 함께 설계하고, 여기서는 내용을 검토한 뒤 승인합니다. 초안 저장만으로는 장치에 전달되지 않습니다.</p>
+    <p class="callout">시작 3.5V 이상 · 보호 평균 3.4V 미만 중단 · 최대 60초 계획 / 600표본. 이미 장치에 저장된 실험은 원격 취소가 즉시 적용되지 않습니다.</p>
+    <details id="experiment-editor"><summary>실험 초안 작성 · 편집</summary>
+      <button id="new-experiment" type="button">기본 예제로 새 초안</button><p id="draft-edit-state" class="hint"></p>
+      <label for="experiment-title">실험 제목 <input id="experiment-title" maxlength="80"></label>
+      <label for="experiment-purpose">목적 · 비교할 조건 <textarea id="experiment-purpose" maxlength="1000" rows="3"></textarea></label>
+      <details><summary>고급 설정 · 규격 JSON</summary><label for="experiment-json">실험 규격 <textarea id="experiment-json" rows="18" spellcheck="false"></textarea></label></details>
+      <button id="preview-experiment" type="button">규격 검토</button><p id="recipe-summary" role="status"></p><ol id="recipe-steps" class="step-list"></ol>
+      <button id="save-experiment" type="button" class="primary">초안 저장 · 실행하지 않음</button>
+    </details>
+    <h3>승인 전 초안</h3><div id="draft-list"><p>불러오는 중입니다.</p></div>
+    <h3>승인된 실험 · 결과</h3><button id="refresh-experiments" type="button">실험 상태 새로고침</button><div id="experiment-list"></div>
+    <section id="experiment-result" class="trace-panel" hidden><h3 id="result-heading">실험 결과</h3><p id="result-summary"></p><div id="experiment-chart"></div>
+      <p class="hint">배경은 실제 실행 단계입니다. 전압은 보드 ADC 기반이며 전류·소비전력·셀 휴지전압이 아닙니다. 결측값과 미수신 구간은 선을 연결하지 않습니다.</p>
+      <button id="download-experiment" type="button">원시 결과 JSON 다운로드</button></section>
+    <p class="hint">실험 중 정규 관측 한 회가 생략될 수 있습니다. 결과는 이후 기상 때 나누어 전송됩니다. ‘결과 수집 완료’여도 실험 자체는 중단되었을 수 있으므로 종료 사유를 확인하세요.</p>
+  </section>
+  <section id="firmware-section" class="panel"><p class="eyebrow">SIGNED OTA</p><h2>펌웨어 등록과 배포</h2>
+    <p>로컬에서 서명한 JSON과 동일한 앱 바이너리를 함께 선택하세요. 서버가 서명·해시·보드·버전을 검사합니다. 등록만으로는 배포되지 않습니다.</p>
+    <label>서명 manifest JSON <input id="manifest" type="file" accept=".json,application/json"></label>
+    <label>앱 펌웨어 (.bin) <input id="firmware" type="file" accept=".bin,application/octet-stream"></label>
+    <button id="register">업로드 · 검증 · 등록</button>
+    <label>배포할 버전 <select id="release"></select></label>
+    <button data-action="approve">선택 버전 자동 OTA 승인</button>
+    <button data-action="manual_ota">승인된 버전 수동 OTA 요청 · 1시간</button>
+    <button data-action="pause">자동 OTA 배포 중지</button>
+    <p class="hint">1.1.0 이상: 자동 OTA 3.6V 이상 / 명시적 수동 요청 3.5V 이상. 비상 상태에서는 모두 금지합니다.
+      이전 펌웨어는 수동 요청과 무관하게 기존 3.8V 제한을 유지합니다. 수동 요청은 선택한 승인 버전에만 1시간 유효하며 재시도 횟수를 초기화하지 않습니다.
+      중지는 이후 다운로드를 막으며 설치 중인 장치를 즉시 중단시키지 않습니다. 최대 3회 시도, 실패 후 1시간·6시간 대기. 복구 버전도 더 높은 번호로 빌드하세요.</p>
+  </section>
+  <section class="panel"><h2>최근 관리 이력</h2><ol id="events"></ol></section>
+  <button id="refresh">상태 새로고침</button>
+</main></body></html>

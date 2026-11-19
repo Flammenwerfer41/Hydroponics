@@ -1,3 +1,4 @@
+import { normalizeSchedule, normalizeAstronomy } from '../station/contract.js';
 export const READING_SCHEMA_VERSION = 1;
 
 export const QUALITY_STATES = Object.freeze([
@@ -13,6 +14,7 @@ export const METRICS = Object.freeze({
   air_temperature: Object.freeze({ unit: "degC", minimum: -40, maximum: 85 }),
   humidity: Object.freeze({ unit: "percent", minimum: 0, maximum: 100 }),
   pressure: Object.freeze({ unit: "hPa", minimum: 300, maximum: 1200 }),
+  battery_voltage: Object.freeze({ unit: "V", minimum: 2, maximum: 4.5 }),
   wifi_rssi: Object.freeze({ unit: "dBm", minimum: -127, maximum: 0 }),
   water_temperature: Object.freeze({ unit: "degC", minimum: -55, maximum: 125 }),
   co2_concentration: Object.freeze({ unit: "ppm", minimum: 250, maximum: 40000, integer: true }),
@@ -151,6 +153,16 @@ export function normalizeReading(input, now = new Date()) {
     errors.push("reset_reason must be a string of at most 80 characters");
   }
 
+  let stationSchedule;
+  if (input.station_schedule !== undefined) {
+    try { stationSchedule = normalizeSchedule(input.station_schedule); }
+    catch { errors.push('Invalid station_schedule'); }
+  }
+  let astronomy;
+  if (input.astronomy !== undefined) {
+    try { astronomy = normalizeAstronomy(input.astronomy, measuredMs, stationSchedule); }
+    catch { errors.push('Invalid astronomy'); }
+  }
   if (errors.length > 0) {
     throw new ReadingValidationError("Reading validation failed", [...new Set(errors)]);
   }
@@ -163,6 +175,8 @@ export function normalizeReading(input, now = new Date()) {
     measuredAt: new Date(measuredMs).toISOString(),
     firmwareVersion: input.firmware_version,
     resetReason: input.reset_reason ?? null,
+    ...(stationSchedule ? { stationSchedule } : {}),
+    ...(astronomy ? { astronomy } : {}),
     values: normalizedValues
   };
 }

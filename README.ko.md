@@ -103,6 +103,8 @@ OTA 호스트 대신 IP 주소를 사용할 수 있습니다. 일반 펌웨어 O
 - [일일 보고서 브리지와 CO₂·추정 PPFD 해석](docs/DAILY_REPORT.md)
 - [클라우드 플랫폼 로드맵](ROADMAP.md)
 - [다중 환경 노드 통합 지침](MULTI_NODE_INTEGRATION.md)
+- [태양광 발코니 기상대 v1: 펌웨어·제한된 재시도·서명 OTA](weather-station/README.md) — 서버 활성화·인증 USB 설치 확인, 첫 OTA 검증 대기
+- [기상대 OTA 릴리스·키 보관·복구 절차](weather-station/OTA_OPERATIONS.md)
 - [GitHub Project](https://github.com/users/Flammenwerfer41/projects/1)
 
 원본 Arduino 단일 스케치는 `legacy_arduino/`에 보관되어 있습니다.

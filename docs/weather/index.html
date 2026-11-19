@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>발코니 기상대</title><link rel="stylesheet" href="station.css?v=20261119-v2">
+  <script type="module" src="weather.js?v=20261117-astronomy"></script>
+</head>
+<body><main>
+  <nav><a href="../">수경재배 대시보드</a><a href="../admin/station/">기상대 관리 · 로그인</a></nav>
+  <header class="station-hero"><p class="eyebrow">BALCONY WEATHER · OBSERVATIONS</p><h1>발코니의 지금</h1><p>태양광으로 운용하는 작은 기상대의 온도, 습도, 기압과 에너지 기록.</p><span class="badge">실측 관측 · Asia/Tokyo</span></header>
+  <p id="status" role="status">관측값을 불러오는 중입니다.</p>
+  <section class="metrics" aria-label="최근 관측값">
+    <article><h2>기온</h2><strong id="temperature">--</strong><span> °C</span></article>
+    <article><h2>상대습도</h2><strong id="humidity">--</strong><span> %</span></article>
+    <article><h2>현지기압</h2><strong id="pressure">--</strong><span> hPa</span></article>
+    <article><h2>배터리</h2><strong id="battery">--</strong><span> V</span><p id="charge">추정 잔량 --</p></article>
+  </section>
+  <section class="panel" aria-labelledby="night-heading">
+    <h2 id="night-heading">최근 야간 마감</h2>
+    <strong id="night-value">야간 마감 관측 대기</strong>
+    <p id="night-time">마감 기록을 확인하는 중입니다.</p>
+    <p id="night-note" class="hint">밤의 기준은 태양 중심 고도 −18°입니다. 충전 종료 여부를 직접 측정한 값은 아닙니다.</p>
+    <p id="night-model" class="hint"></p>
+  </section>
+  <p class="hint">잔량은 삼성 35E의 상온·0.2C 방전곡선 기반 추정치입니다. 충전·온도·부하에 따라 달라지며 실제 용량 측정값이 아닙니다. 곡선의 0%는 2.65V 기준으로, 장치의 운용 하한과는 다릅니다.</p>
+  <p id="schedule" class="hint">관측 주기 확인 중</p>
+  <p class="hint">설정된 주기의 정각에 맞춰 관측합니다. 서버 도착은 통신 상황에 따라 늦어질 수 있습니다.</p>
+  <button id="refresh" type="button">새로고침</button>
+  <details class="panel"><summary>관측과 에너지 기록 읽는 법</summary>
+    <ul><li>통상 관측은 설정된 정각 주기로, 비상 상태는 60분 주기로 동작합니다. 실제 적용 주기는 위의 관측 메타데이터를 확인하세요.</li>
+      <li>야간 기준은 태양 고도 −18°입니다. 야간 마감은 해당 시점 이후 첫 정규 관측이며 충전 종료를 직접 감지한 값이 아닙니다.</li>
+      <li>실험 데이터는 일반 관측과 분리합니다. 실험 시 정규 관측 한 회가 생략될 수 있습니다.</li>
+      <li>펌웨어·전력 정책·실험 승인과 결과는 관리자 화면에서 확인합니다. 공개 페이지에는 관리 정보와 실험 원시값을 노출하지 않습니다.</li></ul>
+    <a href="../admin/station/">기상대 운영실 · 관리자 로그인</a>
+  </details>
+  <section class="panel history-panel" aria-labelledby="history-heading">
+    <p class="eyebrow">OBSERVATION HISTORY · JST</p>
+    <h2 id="history-heading">발코니의 변화</h2>
+    <p class="hint">버튼을 누르면 선택한 기간의 원시 기록을 불러옵니다. 그래프는 자동 갱신하지 않습니다.</p>
+    <div class="history-controls">
+      <label for="history-period">조회 기간 <select id="history-period"><option value="1">최근 24시간</option><option value="2">최근 48시간</option><option value="7">최근 7일</option></select></label>
+      <button id="history-load" type="button" aria-controls="history-charts">그래프 불러오기</button>
+    </div>
+    <p id="history-status" role="status" aria-live="polite">아직 기록을 조회하지 않았습니다.</p>
+    <div id="history-charts" hidden></div>
+  </section>
+</main></body></html>
