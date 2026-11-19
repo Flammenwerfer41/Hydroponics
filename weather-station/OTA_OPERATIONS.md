@@ -1,5 +1,29 @@
 # Weather station OTA operations
 
+## 2026-11-19 — v2.0.0 registered and approved
+
+- Unified station dashboard deployed: reported/target versions, power/schedule, maintenance,
+  experiment draft editing, explicit approval, step-aligned result graph and raw JSON download.
+- Includes v1.1 power/schedule and v1.2 astronomy/night closing plus the bounded experiment runner.
+- D1 full SQL backup saved privately under ignored `.pio/backups/pre-v2-20261119.sql` before changes.
+  Recovery bookmark: `00000a61-0000113c-00005128-a9162be284312accb7595f59b00d916e`.
+- Additive migrations 0014–0017 applied successfully. Worker test suite: 131/131 passed.
+- Production build: 1,095,296-byte app image; flash 61.9%, static RAM 13.8%.
+  Signed with the existing private key; no key rotation or USB flash.
+- SHA-256: `4fc1fa63eed2879f2a05a80220b56acd30578f3d5e9260f129d5430363c894d8`.
+- Registered at **22:24:12 JST**, approved at **22:25:52 JST** for `balcony-weather-01`.
+  The user completed the browser confirmation after the automation's dialog control stalled.
+- At approval verification, the last actual device report was **v1.0.1 at 22:14:43 JST**.
+  **Installation is pending**, not proven by upload or approval. The old firmware's 3.8 V gate
+  remains until installation; v2 automatic 3.6 V / manual 3.5 V policy applies only afterward.
+- No experiment was approved or executed on the real device. UI graphs were tested with synthetic data.
+  After confirming v2 installation, pause the OTA target before approving an experiment; these workflows
+  are intentionally mutually exclusive. Keep maintenance inactive and wait for a recent idle report.
+- Release artifacts remain Git-ignored and private in `weather-station/releases/2.0.0/`.
+  Never publish the BIN: the compiled application contains device configuration/credentials.
+
+The sections below are historical commissioning records, not the current deployment status.
+
 ## 2026-11-14 — temporary five-minute release v1.0.2
 
 - Only station cadence/version changed: 300-second wall-clock slots; queue capacity,
