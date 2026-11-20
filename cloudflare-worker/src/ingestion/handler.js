@@ -2,7 +2,7 @@ import { authenticateDevice, sha256Hex } from "./auth.js";
 import { ReadingValidationError, normalizeReading } from "./contract.js";
 import { persistReading } from "./store.js";
 import { jsonResponse, preflightResponse } from "../http/response.js";
-import { stationControl, recordStationStatus } from "../station/handler.js";
+import { completeStationOta, stationControl, recordStationStatus } from "../station/handler.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 // D1 Free allows 50 queries per Worker invocation. Each reading uses two batched
@@ -65,6 +65,7 @@ async function processReadings(database, deviceId, inputs, request, environment,
   const addressHash = await remoteAddressHash(request, environment);
   const receivedAt = now.toISOString();
   const results = [];
+  let acceptedReading = null;
 
   for (let index = 0; index < inputs.length; index += 1) {
     const validated = validationResult(inputs[index], index, now);
@@ -86,6 +87,7 @@ async function processReadings(database, deviceId, inputs, request, environment,
         addressHash
       );
       results.push({ index, reading_id: validated.reading.readingId, ...result });
+      if (inputs.length === 1 && result.status === "accepted") acceptedReading = validated.reading;
     } catch (error) {
       console.error("Reading persistence failed", error);
       results.push({
@@ -96,7 +98,7 @@ async function processReadings(database, deviceId, inputs, request, environment,
       });
     }
   }
-  return results;
+  return { results, acceptedReading };
 }
 
 function responseStatusFor(result) {
@@ -165,7 +167,7 @@ export async function handleIngestion(request, environment, context, path) {
   }
 
   const now = new Date();
-  const results = await processReadings(
+  const { results, acceptedReading } = await processReadings(
     environment.HYDROPONICS_DB,
     device.device_id,
     inputs,
@@ -196,6 +198,15 @@ export async function handleIngestion(request, environment, context, path) {
         const control = await stationControl(environment.HYDROPONICS_DB, device.device_id, now);
         if (control) {
           if (body.station_status) await recordStationStatus(environment.HYDROPONICS_DB, device.device_id, body.station_status);
+          if (control.update && acceptedReading) {
+            try {
+              if (await completeStationOta(environment.HYDROPONICS_DB, device.device_id, control.update, acceptedReading, now)) {
+                control.update = null;
+              }
+            } catch (error) {
+              console.warn('Station OTA completion deferred', error);
+            }
+          }
           station = { station_control: control };
         }
       } catch (error) {

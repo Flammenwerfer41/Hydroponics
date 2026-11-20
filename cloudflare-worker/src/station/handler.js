@@ -38,6 +38,35 @@ export async function recordStationStatus(database, deviceId, input) {
     WHERE device_id = ?3`).bind(new Date().toISOString(), JSON.stringify(status), deviceId).run();
 }
 
+export async function completeStationOta(database, deviceId, target, reading, now) {
+  const measured = Date.parse(reading.measuredAt);
+  const age = now.getTime() - measured;
+  if (reading.firmwareVersion !== target.version || !Number.isFinite(age) || age > 300_000 || age < -30_000 ||
+      !reading.values.some(field => field.quality === 'valid' && field.value !== null &&
+        ['air_temperature', 'humidity', 'pressure', 'battery_voltage'].includes(field.metric))) return false;
+
+  const id = crypto.randomUUID();
+  const stamp = now.toISOString();
+  // A qualifying observation must postdate the current approval, even for a reapproved SHA.
+  // Only this transaction's inserted event can authorize clearing the target.
+  const [completion] = await database.batch([
+    database.prepare(`INSERT INTO station_ota_completions (id,device_id,sha256,measured_at,completed_at)
+      SELECT ?1,c.device_id,c.target_sha256,?2,?3 FROM station_control c
+      JOIN station_releases r ON r.sha256=c.target_sha256 AND r.hardware=c.hardware
+      WHERE c.device_id=?4 AND c.target_sha256=?5 AND r.version=?6
+        AND c.reported_at>=?7 AND json_extract(c.reported_status,'$.firmware_version')=r.version
+        AND (SELECT e.created_at FROM station_events e
+          WHERE e.device_id=c.device_id AND e.action='approve' AND e.sha256=c.target_sha256
+          ORDER BY e.created_at DESC LIMIT 1)<MIN(?2,?3)`)
+      .bind(id,reading.measuredAt,stamp,deviceId,target.sha256,target.version,new Date(now.getTime()-300_000).toISOString()),
+    database.prepare(`UPDATE station_control SET target_sha256=NULL,manual_ota_expires_at=NULL,
+      manual_ota_sha256=NULL,updated_at=?1,updated_by='station-observation'
+      WHERE device_id=?2 AND target_sha256=?3 AND EXISTS (SELECT 1 FROM station_ota_completions WHERE id=?4)`)
+      .bind(stamp,deviceId,target.sha256,id)
+  ]);
+  return Number(completion.meta?.changes) === 1;
+}
+
 async function readBody(request) {
   if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json"))
     throw new Error("Expected application/json");
@@ -176,7 +205,11 @@ export async function handleStationAdmin(request, env, path) {
   }
   if (request.method === "GET" && path === "/admin/api/stations") {
     const [stations, releases] = await Promise.all([
-      env.HYDROPONICS_DB.prepare("SELECT * FROM station_control ORDER BY device_id LIMIT 50").all(),
+      env.HYDROPONICS_DB.prepare(`SELECT c.*, o.sha256 AS completed_ota_sha256,
+        o.completed_at AS completed_ota_at, r.version AS completed_ota_version
+        FROM station_control c LEFT JOIN station_ota_completions o ON o.id=(
+          SELECT id FROM station_ota_completions WHERE device_id=c.device_id ORDER BY completed_at DESC LIMIT 1)
+        LEFT JOIN station_releases r ON r.sha256=o.sha256 ORDER BY c.device_id LIMIT 50`).all(),
       env.HYDROPONICS_DB.prepare("SELECT * FROM station_releases ORDER BY created_at DESC LIMIT 20").all()
     ]);
     return response({ stations: stations.results, releases: releases.results,
@@ -187,7 +220,9 @@ export async function handleStationAdmin(request, env, path) {
     const result = await env.HYDROPONICS_DB.prepare(`SELECT action,sha256,created_at,actor,NULL AS details FROM station_events
       WHERE device_id = ?1 UNION ALL SELECT action,NULL AS sha256,created_at,actor,details FROM station_policy_events
       WHERE device_id = ?1 UNION ALL SELECT action,NULL AS sha256,created_at,actor,details FROM station_experiment_events
-      WHERE device_id = ?1 ORDER BY created_at DESC LIMIT 50`).bind(eventsId).all();
+      WHERE device_id = ?1 UNION ALL SELECT 'ota_completed' AS action,sha256,completed_at AS created_at,
+      'station-observation' AS actor,NULL AS details FROM station_ota_completions WHERE device_id = ?1
+      ORDER BY created_at DESC LIMIT 50`).bind(eventsId).all();
     return response({ events: result.results });
   }
   const uploadId = path.match(/^\/admin\/api\/stations\/([A-Za-z0-9_-]{1,64})\/firmware$/)?.[1];

@@ -20,9 +20,12 @@ function showState() {
   const row = stations.find(item => item.device_id === device.value);
   const status = row?.reported_status ? JSON.parse(row.reported_status) : null;
   const target = releaseRows.find(item => item.sha256 === row?.target_sha256);
+  const completedAt = Date.parse(row?.completed_ota_at);
+  const confirmedInstall = !row?.target_sha256 && row?.completed_ota_version &&
+    row.completed_ota_version === status?.firmware_version && Number.isFinite(completedAt);
   document.querySelector('#reported-version').textContent=status?.firmware_version || '미확인';
   document.querySelector('#reported-time').textContent=row?.reported_at?new Date(row.reported_at).toLocaleString('ko-KR',{timeZone:'Asia/Tokyo'})+' JST':'실제 장치 보고 대기';
-  document.querySelector('#target-version').textContent=target?.version || '승인 없음';
+  document.querySelector('#target-version').textContent=target?.version || (row?.target_sha256 ? '승인됨 · 버전 미확인' : '승인 없음');
   const modes={normal:'통상',emergency:'비상 절전',maintenance:'유지보수'};
   document.querySelector('#power-mode').textContent=modes[status?.mode] || '미확인';
   document.querySelector('#power-detail').textContent=status?.schedule?`${typeof status.battery_voltage==='number'?status.battery_voltage.toFixed(3)+'V':'전압 미확인'} · ${scheduleLabel(status.schedule)}`:'이전 펌웨어 · 확장 상태 미보고';
@@ -34,8 +37,10 @@ function showState() {
   const features=[['정각 관측 · 미전송 큐 · 서명 OTA',Boolean(status)],['통상/비상 주기 · 자동 3.6V / 수동 3.5V OTA',since(1,1)],['일별 천문박명 계산 · 야간 마감',since(1,2)],['지정 절차 실험 · 개별 ADC · 중복 실행 방지',since(2,0)]];
   document.querySelector('#capabilities').replaceChildren(...features.map(([label,enabled])=>{const li=document.createElement('li');li.textContent=`${enabled?'지원 버전':'업데이트 필요'} · ${label}`;return li;}));
   let message = !status ? "장치 상태 보고 대기 — 아직 기기 연결을 확인하지 못했습니다."
+    : confirmedInstall ? `${row.completed_ota_version} 설치 완료 · 승인 자동 해제 · ${new Date(completedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Tokyo' })} JST`
+    : row?.target_sha256 && !target ? `최근 보고 버전 ${status.firmware_version} · 승인된 목표 버전 정보 미확인`
     : !target ? `최근 보고 버전 ${status.firmware_version} · 승인된 배포 없음`
-    : status.firmware_version === target.version ? `장치가 ${target.version} 실행을 보고했습니다.`
+    : status.firmware_version === target.version ? `장치가 ${target.version} 실행을 보고했습니다. 새 관측으로 설치 확인 대기 중입니다.`
     : status.ota_sha256 === target.sha256 && status.ota_attempts >= 3 ? `${target.version} · 시도 한도 3회 도달. 원인을 확인하세요.`
     : `${status.firmware_version} → ${target.version} · 적용 대기 (기상 시 확인 / 전압·버전·재시도 조건 충족 필요)`;
   if (row?.reported_at && Date.now() - Date.parse(row.reported_at) > staleMilliseconds(status?.schedule))
@@ -56,7 +61,9 @@ function showState() {
   document.querySelector("#deployment").textContent = message;
   document.querySelector("#state").textContent = row ? JSON.stringify({
     last_report: row.reported_at, status: row.reported_status ? JSON.parse(row.reported_status) : null,
-    target_sha256: row.target_sha256, maintenance_pending_until: row.maintenance_expires_at
+    target_sha256: row.target_sha256, maintenance_pending_until: row.maintenance_expires_at,
+    last_completed_ota: row.completed_ota_at ? { version: row.completed_ota_version,
+      sha256: row.completed_ota_sha256, confirmed_at: row.completed_ota_at } : null
   }, null, 2) : "등록된 기상대가 없습니다. 운영 등록 전에는 정상입니다.";
 }
 async function refresh() {
@@ -77,7 +84,7 @@ async function showEvents() {
   if (device.value !== selected) return;
   document.querySelector("#events").replaceChildren(...data.events.map(event => {
     const item = document.createElement("li");
-    const labels = { register: "등록", approve: "배포 승인", pause: "배포 중지", maintenance: "유지보수 요청", stop: "유지보수 종료", schedule: '관측 주기 설정', manual_ota: '수동 OTA 요청' };
+    const labels = { register: "등록", approve: "배포 승인", pause: "배포 중지", ota_completed: "설치 완료 · 승인 자동 해제", maintenance: "유지보수 요청", stop: "유지보수 종료", schedule: '관측 주기 설정', manual_ota: '수동 OTA 요청' };
     const details = event.details ? JSON.parse(event.details) : null;
     const detail = details?.normal_interval_seconds ? `${details.normal_interval_seconds / 60}분` : (details?.sha256 || event.sha256)?.slice(0, 12) || '—';
     item.textContent = `${new Date(event.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Tokyo" })} JST · ${labels[event.action] || event.action} · ${detail}`;

@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { generateKeyPairSync, sign, createPublicKey } from "node:crypto";
 import worker from "../src/index.js";
 import { sha256Hex } from "../src/ingestion/auth.js";
-import { stationAdminAction, stationControl } from "../src/station/handler.js";
+import { completeStationOta, stationAdminAction, stationControl } from "../src/station/handler.js";
 import { HARDWARE, validateManifest, verifyManifest, normalizeStatus, normalizeSchedule, normalizeAstronomy, SOLAR_MODEL } from "../src/station/contract.js";
 import { makeManifest, checkConfiguration } from "../../weather-station/scripts/release.mjs";
 import { uploadFirmware, verifyImage, readLimited } from "../src/station/firmware.js";
@@ -355,6 +355,84 @@ test("four metrics survive partial failures and retransmission; station response
   assert.equal((await tower.json()).reading, null);
 });
 
+test('OTA completes only from a fresh accepted observation and matching live firmware', async t => {
+  const env = await environment(t);
+  const db = env.HYDROPONICS_DB.db;
+  const time = offset => new Date(Date.now() + offset);
+  await action(env, { action: 'register', manifest });
+  const approved = time(-60_000);
+  await action(env, { action: 'approve', sha256: manifest.sha256 }, approved);
+  await action(env, { action: 'manual_ota', sha256: manifest.sha256 });
+  const live = { ...status, firmware_version: manifest.version };
+  let sequence = 0;
+  const observation = (version, measured, extras = {}) => ({
+    schema_version: 1, reading_id: `ota-boot:${sequence}`, boot_id: 'ota-boot', sequence: sequence++,
+    measured_at: measured.toISOString(), firmware_version: version, values: { battery_voltage: 3.9 }, ...extras
+  });
+  const send = async (body, optIn = true) => {
+    const res = await fetchLocal(request('/v1/readings', body, optIn ? { 'X-Station-Protocol': '1' } : {}), env);
+    return { code: res.status, ...await res.json() };
+  };
+  const target = () => db.prepare('SELECT target_sha256 FROM station_control').get().target_sha256;
+  const completions = () => db.prepare('SELECT * FROM station_ota_completions').all();
+
+  // Even a fresh post-approval observation requires a recent matching status report.
+  assert.equal((await send(observation(manifest.version, time(-2000)))).code, 201);
+  assert.equal(target(), manifest.sha256);
+  assert.equal((await fetchLocal(request('/v1/station/status', live), env)).status, 200);
+  assert.equal(target(), manifest.sha256);
+  for (const reading of [
+    observation('1.0.0', time(-5000), { station_status: live }),
+    observation(manifest.version, new Date(approved.getTime() - 1000)),
+    observation(manifest.version, time(-1000), { values: { battery_voltage: null } }),
+    observation(manifest.version, time(+60_000))
+  ]) {
+    assert.ok((await send(reading)).station_control.update);
+    assert.equal(completions().length, 0);
+  }
+  const duplicate = observation(manifest.version, time(-1000));
+  assert.equal((await send(duplicate, false)).code, 201);
+  assert.equal((await send(duplicate)).status, 'duplicate');
+  assert.equal(target(), manifest.sha256);
+
+  // An audit failure leaves the target intact without failing the reading acknowledgement.
+  db.exec("CREATE TRIGGER fail_completion BEFORE INSERT ON station_ota_completions BEGIN SELECT RAISE(ABORT,'test'); END;");
+  assert.equal((await send(observation(manifest.version, time(-1000)))).code, 201);
+  assert.equal(target(), manifest.sha256);
+  db.exec('DROP TRIGGER fail_completion');
+  const fresh = observation(manifest.version, time(-1000)); // later in same queue drain: no station_status
+  assert.equal((await send(fresh)).station_control.update, null);
+  assert.deepEqual({ ...db.prepare('SELECT target_sha256,manual_ota_sha256,manual_ota_expires_at FROM station_control').get() },
+    { target_sha256: null, manual_ota_sha256: null, manual_ota_expires_at: null });
+  assert.equal((await send(fresh)).status, 'duplicate');
+  assert.equal(completions().length, 1);
+  assert.equal(completions()[0].sha256, manifest.sha256);
+  assert.equal(completions()[0].measured_at, fresh.measured_at);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM station_releases').get().count, 1);
+});
+
+test('a racing replacement or reapproval cannot be cleared by an earlier observation', async t => {
+  const env = await environment(t);
+  const db = env.HYDROPONICS_DB.db;
+  const now = new Date();
+  const at = offset => new Date(now.getTime() + offset);
+  await action(env, { action: 'register', manifest });
+  await action(env, { action: 'approve', sha256: manifest.sha256 }, at(-30_000));
+  assert.equal((await fetchLocal(request('/v1/station/status', { ...status, firmware_version: manifest.version }), env)).status, 200);
+  const oldTarget = (await stationControl(env.HYDROPONICS_DB, ID)).update;
+  const reading = { firmwareVersion: manifest.version, measuredAt: at(-10_000).toISOString(),
+    values: [{ metric: 'battery_voltage', quality: 'valid', value: 3.9 }] };
+  await action(env, { action: 'approve', sha256: manifest.sha256 }, at(-5000));
+  assert.equal(await completeStationOta(env.HYDROPONICS_DB, ID, oldTarget, reading, now), false);
+  const replacement = '1'.repeat(64);
+  db.prepare('INSERT INTO station_releases SELECT ?,hardware,?,size,signature,created_at,created_by FROM station_releases WHERE sha256=?')
+    .run(replacement, '1.0.2', manifest.sha256);
+  db.prepare('UPDATE station_control SET target_sha256=?').run(replacement);
+  assert.equal(await completeStationOta(env.HYDROPONICS_DB, ID, oldTarget, { ...reading, measuredAt: at(-1000).toISOString() }, now), false);
+  assert.equal(db.prepare('SELECT target_sha256 FROM station_control').get().target_sha256, replacement);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM station_ota_completions').get().count, 0);
+});
+
 test("admin requires verified Access plus same-origin mutation", async t => {
   const env = await environment(t);
   env.CF_ACCESS_TEAM_DOMAIN = "test.cloudflareaccess.com"; env.CF_ACCESS_AUD = "test-audience";
@@ -379,6 +457,15 @@ test("admin requires verified Access plus same-origin mutation", async t => {
   assert.equal((await stationControl(env.HYDROPONICS_DB, ID)).update, null);
   const events = await fetchLocal(request(`/admin/api/stations/${ID}/events`, null, headers), env);
   assert.equal(events.status, 200); assert.equal((await events.json()).events.length, 2);
+  const completedAt = new Date(Date.now() + 1000).toISOString();
+  env.HYDROPONICS_DB.db.prepare('INSERT INTO station_ota_completions VALUES (?,?,?,?,?)')
+    .run('test-completion', ID, manifest.sha256, completedAt, completedAt);
+  const { stations } = await (await fetchLocal(request('/admin/api/stations', null, headers), env)).json();
+  assert.equal(stations[0].completed_ota_version, manifest.version);
+  assert.equal(stations[0].completed_ota_at, completedAt);
+  const history = await (await fetchLocal(request(`/admin/api/stations/${ID}/events`, null, headers), env)).json();
+  assert.equal(history.events[0].action, 'ota_completed');
+  assert.equal(history.events[0].sha256, manifest.sha256);
 });
 
 test("release preflight refuses empty commissioning configuration and mismatched trust keys", () => {

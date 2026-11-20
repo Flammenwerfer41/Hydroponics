@@ -138,7 +138,7 @@ export function tableCountQuery(tables = DATABASE_TABLES) {
 // when their CREATE TABLE definitions are present in that exact snapshot.
 export function snapshotTables(sql) {
   const source = sql.toString("utf8");
-  const optional = ["station_releases", "station_control", "station_events", "station_policy_events", "station_night_closings", "station_experiments", "station_experiment_chunks", "station_experiment_events", "station_experiment_drafts"].filter(table =>
+  const optional = ["station_releases", "station_control", "station_events", "station_policy_events", "station_night_closings", "station_experiments", "station_experiment_chunks", "station_experiment_events", "station_experiment_drafts", "station_ota_completions"].filter(table =>
     new RegExp(`^\\s*CREATE TABLE(?: IF NOT EXISTS)? [\\x22\\x27\\x60\\[]?${table}[\\x22\\x27\\x60\\]]?\\s*\\(`, "im").test(source));
   return [...DATABASE_TABLES, ...optional];
 }

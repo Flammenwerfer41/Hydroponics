@@ -1,5 +1,19 @@
 # Weather station OTA operations
 
+## Automatic completion
+
+An active OTA approval ends when the server confirms a newly accepted observation taken after
+approval, with the same firmware version as the approved release and the live authenticated device
+report. Approval, download, a status report alone, and replayed readings do not prove installation.
+The dashboard shows `설치 완료 · 승인 자동 해제` with the confirmation time when the reported running
+version still matches the completed release and no newer approval is active.
+
+Completion clears only the active target and its manual OTA window; the signed release and audit
+history remain. A different approval is not cleared on an old report. Manual pause remains available
+and does not record installation success. Once no approval remains, an experiment can be approved
+subject to the existing idle, maintenance, and battery protections. No firmware update is needed
+for this server-side behavior. The entries below describe the historical rollout at the stated dates.
+
 ## 2026-11-19 — v2.0.0 registered and approved
 
 - Unified station dashboard deployed: reported/target versions, power/schedule, maintenance,

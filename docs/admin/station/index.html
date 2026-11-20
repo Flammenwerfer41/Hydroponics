@@ -3,7 +3,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
   <title>기상대 관리 · Station Control</title><link rel="stylesheet" href="../../weather/station.css?v=20261119-v2">
-  <script type="module" src="station.js?v=20261119-v2"></script>
+  <script type="module" src="station.js?v=20261120-ota-completion"></script>
 </head><body><main>
   <nav><a href="../">재배 환경 관리</a><a href="../../weather/">기상대 관측</a></nav>
   <header class="station-hero"><p class="eyebrow">BALCONY WEATHER · CONTROL</p><h1>기상대 운영실</h1><p>관측은 꾸준하게, 변경과 실험은 명확하게.</p><span class="badge">관리자 전용</span></header>
@@ -36,7 +36,7 @@
   </section>
   <section id="experiments" class="panel"><p class="eyebrow">EXPERIMENT LAB · FIRMWARE 2.0+</p><h2>실험 초안과 결과</h2>
     <p>실험 규격은 함께 설계하고, 여기서는 내용을 검토한 뒤 승인합니다. 초안 저장만으로는 장치에 전달되지 않습니다.</p>
-    <p class="hint">실행 승인 전: 2.0 이상 설치 보고를 확인하고, 아래 펌웨어 영역에서 자동 OTA 배포를 중지하세요. 유지보수 요청이 없어야 하며 최근 2시간 내 실험 대기 상태 보고가 필요합니다.</p>
+    <p class="hint">실행 승인 전: 2.0 이상 설치 보고를 확인하세요. 활성 OTA 승인이 남아 있으면 설치 확인을 기다리거나 펌웨어 영역에서 수동 중지하세요. 유지보수 요청이 없어야 하며 최근 2시간 내 실험 대기 상태 보고가 필요합니다.</p>
     <p class="callout">시작 3.5V 이상 · 보호 평균 3.4V 미만 중단 · 최대 60초 계획 / 600표본. 이미 장치에 저장된 실험은 원격 취소가 즉시 적용되지 않습니다.</p>
     <details id="experiment-editor"><summary>실험 초안 작성 · 편집</summary>
       <button id="new-experiment" type="button">기본 예제로 새 초안</button><p id="draft-edit-state" class="hint"></p>
@@ -62,6 +62,7 @@
     <button data-action="approve">선택 버전 자동 OTA 승인</button>
     <button data-action="manual_ota">승인된 버전 수동 OTA 요청 · 1시간</button>
     <button data-action="pause">자동 OTA 배포 중지</button>
+    <p class="hint">승인된 버전의 장치 보고와 새 관측이 확인되면 설치 완료를 기록하고 해당 배포 승인만 자동으로 해제합니다. 등록 파일과 관리 이력은 남습니다.</p>
     <p class="hint">1.1.0 이상: 자동 OTA 3.6V 이상 / 명시적 수동 요청 3.5V 이상. 비상 상태에서는 모두 금지합니다.
       이전 펌웨어는 수동 요청과 무관하게 기존 3.8V 제한을 유지합니다. 수동 요청은 선택한 승인 버전에만 1시간 유효하며 재시도 횟수를 초기화하지 않습니다.
       중지는 이후 다운로드를 막으며 설치 중인 장치를 즉시 중단시키지 않습니다. 최대 3회 시도, 실패 후 1시간·6시간 대기. 복구 버전도 더 높은 번호로 빌드하세요.</p>
