@@ -9,6 +9,8 @@ constexpr int backlogPerWake = 8;
 constexpr int maintenanceSeconds = 900;
 constexpr int otaSeconds = 120;
 constexpr int maxOtaAttempts = 3;
+constexpr int clockSyncIntervalSeconds = 3600;
+constexpr int clockSyncTimeoutMs = 3000;
 constexpr int queueCapacity = 1344; // ~4.7 days at 288/day; 14 days at the normal 15-minute cadence.
 constexpr double otaMinVoltage = 3.6;
 constexpr double manualOtaMinVoltage = 3.5;
@@ -22,6 +24,16 @@ constexpr bool validVoltage(double voltage) { return voltage >= 2 && voltage <= 
 constexpr int millivolts(double voltage) { return validVoltage(voltage) ? int(voltage * 1000 + 0.5) : -1; }
 constexpr const char* hardware = "firebeetle2-esp32c6-v1.2";
 constexpr int64_t nextSlot(int64_t epoch, int seconds = period) { return (epoch / seconds + 1) * seconds; }
+constexpr bool clockSyncDue(int64_t now, int64_t lastSync, int64_t lastAttempt) {
+    const auto anchor = lastSync > lastAttempt ? lastSync : lastAttempt;
+    return now >= anchor && now - anchor >= clockSyncIntervalSeconds;
+}
+constexpr int64_t nextObservationSlot(int64_t now, int seconds, int64_t lastStoredEpoch) {
+    const auto next = nextSlot(now, seconds);
+    // A backward correction can put the next boundary in the slot just recorded.
+    // Skip only that immediate slot, not a long range after a larger correction.
+    return lastStoredEpoch >= next && lastStoredEpoch - next < seconds ? next + seconds : next;
+}
 struct PowerState { bool emergency = false; int recoveryCount = 0; };
 // Called once per wake, never once per HTTP poll: two separate wakes must confirm recovery.
 constexpr PowerState observePower(PowerState state, double voltage) {
@@ -64,6 +76,12 @@ constexpr bool newerVersion(const char* candidate, const char* current) {
 }
 static_assert(nextSlot(0) == 300 && nextSlot(299) == 300 && nextSlot(300) == 600);
 static_assert(nextSlot(3599) == 3600 && nextSlot(3600) == 3900);
+static_assert(!clockSyncDue(4599, 1000, 0) && clockSyncDue(4600, 1000, 0));
+static_assert(!clockSyncDue(4900, 1000, 4600) && clockSyncDue(8200, 1000, 4600));
+static_assert(!clockSyncDue(4599, 4550, 4550) && clockSyncDue(8150, 4550, 4550));
+static_assert(nextObservationSlot(3570, 300, 3601) == 3900);
+static_assert(nextObservationSlot(3630, 300, 3601) == 3900);
+static_assert(nextObservationSlot(3570, 300, 7201) == 3600);
 static_assert(newerVersion("1.0.1", "1.0.0") && newerVersion("1.10.0", "1.9.0"));
 static_assert(!newerVersion("1.0.0", "1.0.0") && !newerVersion("0.9.0", "1.0.0"));
 static_assert(!newerVersion("2.0", "1.0.0") && !newerVersion("02.0.0", "1.0.0"));

@@ -14,14 +14,20 @@
 #include "freertos/task.h"
 
 static std::atomic<int64_t> hardDeadline;
+static std::atomic<int64_t> lastStoredEpoch{0};
 RTC_DATA_ATTR static int64_t lastSync = 0;
+RTC_DATA_ATTR static int64_t lastSyncAttempt = 0;
 static const char* TAG = "weather";
 int64_t monotonicMs() { return esp_timer_get_time() / 1000; }
 bool validClock() { return lastSync > 1700000000 && time(nullptr) >= lastSync && time(nullptr) - lastSync < 30 * 86400; }
 void setHardDeadline(int seconds) { hardDeadline.store(monotonicMs() + seconds * 1000LL); }
+static void recordClockSync() { lastSyncAttempt = lastSync = time(nullptr); }
+static int64_t nextMeasurementSlot(int64_t now) {
+    return policy::nextObservationSlot(now, activePeriod(), lastStoredEpoch.load());
+}
 [[noreturn]] void sleepUntilSlot() {
     const auto now = time(nullptr);
-    int64_t seconds = validClock() ? policy::nextSlot(now, activePeriod()) - now : activePeriod();
+    int64_t seconds = validClock() ? nextMeasurementSlot(now) - now : activePeriod();
     if (seconds < 1) seconds = 1;
     ESP_LOGI(TAG, "Deep sleep for %lld seconds; clock=%s", (long long)seconds,
              validClock() ? "synced" : "not_synced");
@@ -117,7 +123,7 @@ extern "C" void app_main() {
         wifiAttempted = true;
         connected = connectWifi(std::min<int64_t>(normalDeadline, monotonicMs() + 16000));
         if (connected && syncClock(std::min<int64_t>(normalDeadline, monotonicMs() + 6000))) {
-            lastSync = time(nullptr);
+            recordClockSync();
             // Cold boot: do not assign an invented timestamp to a pre-sync observation.
             record = measure();
         }
@@ -126,7 +132,10 @@ extern "C" void app_main() {
     annotateSchedule(record);
     annotateAstronomy(record);
     bool stored = record.epoch && enqueue(record);
-    if (stored) commitNightClosing(record);
+    if (stored) {
+        lastStoredEpoch.store(record.epoch);
+        commitNightClosing(record);
+    }
     ESP_LOGI(TAG, "Observation epoch=%lld temp=%.2fC humidity=%.2f%% pressure=%.2fhPa battery=%.3fV; stored=%d queued=%d",
              (long long)record.epoch, record.temperature, record.humidity, record.pressure,
              record.battery, stored, queued());
@@ -148,9 +157,6 @@ extern "C" void app_main() {
         normalDeadline = std::min<int64_t>(normalDeadline, monotonicMs() + 7000);
         setHardDeadline(std::max<int64_t>(1, (normalDeadline - monotonicMs()) / 1000 + 1));
     }
-    if (validClock() && time(nullptr) - lastSync >= 86400 && monotonicMs() + 4000 < normalDeadline) {
-        if (syncClock(monotonicMs() + 3000)) lastSync = time(nullptr);
-    }
     cJSON* control = validClock() ? flush(normalDeadline) : nullptr;
     // One status request reports version/retry state; during maintenance this doubles as control polling.
     if (!control && monotonicMs() + 2000 < normalDeadline) {
@@ -162,6 +168,16 @@ extern "C" void app_main() {
             if (cJSON_IsObject(updated)) { cJSON_Delete(control); control = cJSON_Duplicate(updated, true); }
         }
         cJSON_Delete(response);
+    }
+    const auto now = time(nullptr);
+    if (validClock() && policy::clockSyncDue(now, lastSync, lastSyncAttempt) &&
+        monotonicMs() + policy::clockSyncTimeoutMs + 1000 < normalDeadline) {
+        // Give ordinary telemetry priority; never wake solely for SNTP.
+        // Remember failures across deep sleep so a time-server outage does not add a wait every wake.
+        lastSyncAttempt = now;
+        const bool synced = syncClock(monotonicMs() + policy::clockSyncTimeoutMs);
+        if (synced) recordClockSync();
+        ESP_LOGI(TAG, "Hourly SNTP: %s", synced ? "synchronized" : "timed out; keeping RTC time");
     }
     const bool changed = applySchedule(control);
     experiment::accept(control);
@@ -175,18 +191,21 @@ extern "C" void app_main() {
         auto response = postJson("/v1/station/status", body, normalDeadline, code);
         cJSON_Delete(body); cJSON_Delete(response);
     }
-    int64_t nextMeasurement = validClock() ? policy::nextSlot(time(nullptr), activePeriod()) : 0;
+    int64_t nextMeasurement = validClock() ? nextMeasurementSlot(time(nullptr)) : 0;
     while (maintenance > monotonicMs()) {
         setHardDeadline(std::max<int64_t>(1, (maintenance - monotonicMs()) / 1000));
         if (validClock() && time(nullptr) >= nextMeasurement) {
             record = measure();
             if (!observeBattery(record.battery, false)) sleepUntilSlot();
             annotateSchedule(record); annotateAstronomy(record);
-            if (enqueue(record)) commitNightClosing(record);
+            if (enqueue(record)) {
+                lastStoredEpoch.store(record.epoch);
+                commitNightClosing(record);
+            }
             if (emergencyMode()) sleepUntilSlot();
-            nextMeasurement = policy::nextSlot(time(nullptr), activePeriod());
+            nextMeasurement = nextMeasurementSlot(time(nullptr));
             auto updated = flush(std::min<int64_t>(maintenance, monotonicMs() + 15000), true);
-            if (applySchedule(updated)) nextMeasurement = policy::nextSlot(time(nullptr), activePeriod());
+            if (applySchedule(updated)) nextMeasurement = nextMeasurementSlot(time(nullptr));
             cJSON_Delete(updated);
         }
         int code; auto body = statusRequest(true);
@@ -194,7 +213,7 @@ extern "C" void app_main() {
         cJSON_Delete(body);
         if (response) {
             auto updated = cJSON_GetObjectItemCaseSensitive(response, "station_control");
-            if (applySchedule(updated)) nextMeasurement = validClock() ? policy::nextSlot(time(nullptr), activePeriod()) : 0;
+            if (applySchedule(updated)) nextMeasurement = validClock() ? nextMeasurementSlot(time(nullptr)) : 0;
             if (!observeBattery(measure().battery, false)) sleepUntilSlot();
             maintenance = maintenanceUntil(updated, maintenance);
             auto update = cJSON_GetObjectItemCaseSensitive(updated, "update");
