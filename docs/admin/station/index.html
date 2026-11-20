@@ -3,7 +3,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
   <title>기상대 관리 · Station Control</title><link rel="stylesheet" href="../../weather/station.css?v=20261119-v2">
-  <script type="module" src="station.js?v=20261120-ota-completion"></script>
+  <script type="module" src="station.js?v=20261120-immediate-upload"></script>
 </head><body><main>
   <nav><a href="../">재배 환경 관리</a><a href="../../weather/">기상대 관측</a></nav>
   <header class="station-hero"><p class="eyebrow">BALCONY WEATHER · CONTROL</p><h1>기상대 운영실</h1><p>관측은 꾸준하게, 변경과 실험은 명확하게.</p><span class="badge">관리자 전용</span></header>
@@ -48,10 +48,10 @@
     </details>
     <h3>승인 전 초안</h3><div id="draft-list"><p>불러오는 중입니다.</p></div>
     <h3>승인된 실험 · 결과</h3><button id="refresh-experiments" type="button">실험 상태 새로고침</button><div id="experiment-list"></div>
-    <section id="experiment-result" class="trace-panel" hidden><h3 id="result-heading">실험 결과</h3><p id="result-summary"></p><div id="experiment-chart"></div>
+    <section id="experiment-result" class="trace-panel" hidden><h3 id="result-heading">실험 결과</h3><p id="result-summary"></p><p id="immediate-upload-summary" class="hint"></p><div id="experiment-chart"></div>
       <p class="hint">배경은 실제 실행 단계입니다. 전압은 보드 ADC 기반이며 전류·소비전력·셀 휴지전압이 아닙니다. 결측값과 미수신 구간은 선을 연결하지 않습니다.</p>
       <button id="download-experiment" type="button">원시 결과 JSON 다운로드</button></section>
-    <p class="hint">실험 중 정규 관측 한 회가 생략될 수 있습니다. 결과는 이후 기상 때 나누어 전송됩니다. ‘결과 수집 완료’여도 실험 자체는 중단되었을 수 있으므로 종료 사유를 확인하세요.</p>
+    <p class="hint">실험 중 정규 관측 한 회가 생략될 수 있습니다. 실험 직후 못 보낸 결과는 이후 기상 때 나누어 전송됩니다. ‘결과 수집 완료’여도 실험 자체는 중단되었을 수 있으므로 종료 사유를 확인하세요.</p>
   </section>
   <section id="firmware-section" class="panel"><p class="eyebrow">SIGNED OTA</p><h2>펌웨어 등록과 배포</h2>
     <p>로컬에서 서명한 JSON과 동일한 앱 바이너리를 함께 선택하세요. 서버가 서명·해시·보드·버전을 검사합니다. 등록만으로는 배포되지 않습니다.</p>
@@ -59,9 +59,14 @@
     <label>앱 펌웨어 (.bin) <input id="firmware" type="file" accept=".bin,application/octet-stream"></label>
     <button id="register">업로드 · 검증 · 등록</button>
     <label>배포할 버전 <select id="release"></select></label>
-    <button data-action="approve">선택 버전 자동 OTA 승인</button>
+    <button id="prepare-ota-approval" type="button" aria-controls="ota-approval" aria-expanded="false">선택 버전 자동 OTA 승인</button>
     <button data-action="manual_ota">승인된 버전 수동 OTA 요청 · 1시간</button>
     <button data-action="pause">자동 OTA 배포 중지</button>
+    <div id="ota-approval" class="callout" role="group" aria-labelledby="ota-approval-description" hidden>
+      <p id="ota-approval-description"></p>
+      <button id="confirm-ota-approval" type="button">자동 OTA 배포 확정</button>
+      <button id="cancel-ota-approval" type="button">승인 취소</button>
+    </div>
     <p class="hint">승인된 버전의 장치 보고와 새 관측이 확인되면 설치 완료를 기록하고 해당 배포 승인만 자동으로 해제합니다. 등록 파일과 관리 이력은 남습니다.</p>
     <p class="hint">1.1.0 이상: 자동 OTA 3.6V 이상 / 명시적 수동 요청 3.5V 이상. 비상 상태에서는 모두 금지합니다.
       이전 펌웨어는 수동 요청과 무관하게 기존 3.8V 제한을 유지합니다. 수동 요청은 선택한 승인 버전에만 1시간 유효하며 재시도 횟수를 초기화하지 않습니다.

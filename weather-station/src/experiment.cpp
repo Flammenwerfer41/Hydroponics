@@ -31,11 +31,33 @@ struct State {
     Sample samples[maxSamples]{};
 };
 static_assert(sizeof(Sample)==12 && sizeof(State)<=8192,"Review NVS reservation and RAM limits before changing the experiment layout");
+enum class UploadReason : uint32_t {
+    Interrupted, ExperimentNotCompleted, ClockUnavailable, Emergency, BatteryUnavailable,
+    BatteryLow, WindowTooShort, WifiFailed, WifiStartFailed, WifiConnectFailed, WifiIpTimeout,
+    Deadline, HttpFailed, StorageError, AttemptLimit, Completed, Count
+};
+static constexpr const char* uploadReasons[]={"interrupted","experiment_not_completed","clock_unavailable",
+    "emergency","battery_unavailable","battery_low","window_too_short","wifi_failed","wifi_start_failed",
+    "wifi_connect_failed","wifi_ip_timeout","deadline","http_failed","storage_error","attempt_limit","completed"};
+static_assert(sizeof(uploadReasons)/sizeof(*uploadReasons)==unsigned(UploadReason::Count));
+// Store diagnostics separately so the existing trace/ack blob survives firmware upgrades unchanged.
+struct UploadReport {
+    uint32_t format=1, sequence=0;
+    char id[37]={};
+    UploadReason reason=UploadReason::Interrupted;
+    int32_t batteryMv=-1, wifiMs=-1, elapsedMs=-1;
+    uint32_t httpAttempts=0, confirmedSamples=0;
+};
 static State state;
+static UploadReport uploadReport;
 static nvs_handle_t handle;
 static bool ready=false;
 static bool save() {
     return nvs_set_blob(handle,"state",&state,sizeof(state))==ESP_OK && nvs_commit(handle)==ESP_OK;
+}
+static void saveUploadReport() {
+    if (nvs_set_blob(handle,"upload_diag",&uploadReport,sizeof(uploadReport))!=ESP_OK || nvs_commit(handle)!=ESP_OK)
+        ESP_LOGW("experiment","Immediate upload diagnostic not persisted");
 }
 static const char* str(const cJSON* obj,const char* key) {
     auto v=cJSON_GetObjectItemCaseSensitive(obj,key);
@@ -58,6 +80,13 @@ static bool uuid(const char* s) {
 }
 bool init() {
     if (nvs_open_from_partition("records","experiment_v2",NVS_READWRITE,&handle)!=ESP_OK) return false;
+    size_t reportSize=sizeof(uploadReport);
+    if (nvs_get_blob(handle,"upload_diag",&uploadReport,&reportSize)!=ESP_OK || reportSize!=sizeof(uploadReport) ||
+        uploadReport.format!=1 || !uploadReport.sequence || uploadReport.sequence>2147483647 ||
+        uploadReport.id[36] || !uuid(uploadReport.id) || uploadReport.reason>=UploadReason::Count ||
+        (uploadReport.batteryMv!=-1 && (uploadReport.batteryMv<2000 || uploadReport.batteryMv>4500)) ||
+        uploadReport.wifiMs< -1 || uploadReport.wifiMs>30000 || uploadReport.elapsedMs< -1 || uploadReport.elapsedMs>31000 ||
+        uploadReport.httpAttempts>immediateUploadChunks || uploadReport.confirmedSamples>maxSamples) uploadReport={};
     size_t size=sizeof(state);
     auto result=nvs_get_blob(handle,"state",&state,&size);
     if (result==ESP_ERR_NVS_NOT_FOUND) { state={}; ready=true; return true; }
@@ -86,6 +115,21 @@ void status(cJSON* root) {
     cJSON_AddStringToObject(obj,"outcome",state.outcome);
     cJSON_AddNumberToObject(obj,"samples",state.sampleCount);
     cJSON_AddNumberToObject(obj,"upload_attempts",state.attempts);
+    if (uploadReport.sequence) {
+        auto diag=cJSON_AddObjectToObject(obj,"immediate_upload");
+        cJSON_AddNumberToObject(diag,"schema_version",uploadReport.format);
+        cJSON_AddStringToObject(diag,"id",uploadReport.id);
+        cJSON_AddNumberToObject(diag,"sequence",uploadReport.sequence);
+        cJSON_AddStringToObject(diag,"reason",uploadReasons[unsigned(uploadReport.reason)]);
+        const auto metric=[&](const char* key,int value) {
+            if (value<0) cJSON_AddNullToObject(diag,key); else cJSON_AddNumberToObject(diag,key,value);
+        };
+        metric("battery_mv",uploadReport.batteryMv);
+        metric("wifi_ms",uploadReport.wifiMs);
+        metric("elapsed_ms",uploadReport.elapsedMs);
+        cJSON_AddNumberToObject(diag,"http_attempts",uploadReport.httpAttempts);
+        cJSON_AddNumberToObject(diag,"confirmed_samples",uploadReport.confirmedSamples);
+    }
 }
 bool accept(const cJSON* control) {
     if (!ready) return false;
@@ -214,19 +258,30 @@ bool runPending() {
     return true;
 }
 
-static bool immediateVoltageReady() {
+static UploadReason immediateVoltageCheck() {
     const auto voltage = batteryAverage();
-    return observeBattery(voltage,false) && !emergencyMode() && policy::millivolts(voltage)>=startMv;
+    uploadReport.batteryMv = policy::millivolts(voltage);
+    if (!observeBattery(voltage,false)) return UploadReason::StorageError;
+    if (uploadReport.batteryMv<0) return UploadReason::BatteryUnavailable;
+    if (emergencyMode()) return UploadReason::Emergency;
+    return uploadReport.batteryMv<startMv ? UploadReason::BatteryLow : UploadReason::Completed;
 }
 
-static void uploadChunks(int64_t deadline, int maxChunks, bool checkBattery) {
-    if (!ready || state.phase!=Phase::result || emergencyMode() || !validClock() ||
-        state.attempts>=maxUploadAttempts || time(nullptr)<state.nextUpload) return;
+static UploadReason uploadChunks(int64_t deadline, int maxChunks, bool checkBattery) {
+    if (!ready) return UploadReason::StorageError;
+    if (state.phase!=Phase::result) return UploadReason::ExperimentNotCompleted;
+    if (emergencyMode()) return UploadReason::Emergency;
+    if (!validClock()) return UploadReason::ClockUnavailable;
+    if (state.attempts>=maxUploadAttempts) return UploadReason::AttemptLimit;
+    if (time(nullptr)<state.nextUpload) return UploadReason::HttpFailed;
     for (int sent=0;sent<maxChunks && monotonicMs()+2000<deadline && state.phase==Phase::result && state.attempts<maxUploadAttempts;++sent) {
-        if (checkBattery && !immediateVoltageReady()) return;
+        if (checkBattery) {
+            const auto power=immediateVoltageCheck();
+            if (power!=UploadReason::Completed) return power;
+        }
         // Persist attempt before HTTP; a reset consumes an attempt and preserves the backoff.
         ++state.attempts; state.nextUpload=time(nullptr)+3600;
-        if (!save()) { ready=false; return; }
+        if (!save()) { ready=false; return UploadReason::StorageError; }
         auto body=cJSON_CreateObject();
         cJSON_AddNumberToObject(body,"schema_version",1);
         cJSON_AddStringToObject(body,"id",state.id); cJSON_AddNumberToObject(body,"sequence",state.sequence);
@@ -258,26 +313,57 @@ static void uploadChunks(int64_t deadline, int maxChunks, bool checkBattery) {
         const bool ack=code==200 && !strcmp(str(response,"id"),state.id) && next>=0 && next<=state.sampleCount &&
             (next==state.sampleCount ? complete : next%chunkSize==0);
         cJSON_Delete(response);
-        if (!ack) return;
+        if (!ack) return UploadReason::HttpFailed;
         state.cursor=next; state.nextUpload=0;
         if (next==state.sampleCount) state.phase=Phase::empty;
-        if (!save()) { ready=false; return; }
+        if (!save()) { ready=false; return UploadReason::StorageError; }
     }
+    if (state.phase==Phase::empty) return UploadReason::Completed;
+    return state.attempts>=maxUploadAttempts ? UploadReason::AttemptLimit : UploadReason::Deadline;
+}
+
+static UploadReason tryImmediateUpload() {
+    // Only a normal, durably saved result can extend the wake. In particular, do not
+    // override the sampler's short abort deadline or reconnect after a failed test.
+    if (!ready) return UploadReason::StorageError;
+    if (strcmp(state.outcome,"completed")) return UploadReason::ExperimentNotCompleted;
+    if (!validClock()) return UploadReason::ClockUnavailable;
+    if (emergencyMode()) return UploadReason::Emergency;
+    const auto power=immediateVoltageCheck();
+    if (power!=UploadReason::Completed) return power;
+    const auto now = time(nullptr);
+    const auto window = immediateWindowSeconds(policy::nextSlot(now,activePeriod())-now);
+    if (!window) return UploadReason::WindowTooShort;
+    const auto deadline=monotonicMs() + (window-1)*1000;
+    setHardDeadline(window);
+    saveUploadReport(); // If a watchdog/power cut wins, the next boot can distinguish interruption.
+    const auto wifiStart=monotonicMs();
+    if (wifiStart+2000>=deadline) return UploadReason::Deadline;
+    WifiConnectFailure failure;
+    const bool connected=connectWifi(std::min<int64_t>(deadline-2000,wifiStart+immediateConnectMs),1,&failure);
+    uploadReport.wifiMs=std::min<int64_t>(30000,monotonicMs()-wifiStart);
+    const auto reason=connected ? uploadChunks(deadline,immediateUploadChunks,true)
+        : failure==WifiConnectFailure::Start ? UploadReason::WifiStartFailed
+        : failure==WifiConnectFailure::Connect ? UploadReason::WifiConnectFailed
+        : failure==WifiConnectFailure::IpTimeout ? UploadReason::WifiIpTimeout : UploadReason::WifiFailed;
+    stopWifi();
+    return reason;
 }
 
 void uploadAfterRun() {
-    // Only a normal, durably saved result can extend the wake. In particular, do not
-    // override the sampler's short abort deadline or reconnect after a failed test.
-    if (!ready || state.phase!=Phase::result || strcmp(state.outcome,"completed") ||
-        !validClock() || emergencyMode() || !immediateVoltageReady()) return;
-    const auto now = time(nullptr);
-    const auto window = immediateWindowSeconds(policy::nextSlot(now,activePeriod())-now);
-    if (!window) return;
-    auto deadline=monotonicMs() + (window-1)*1000;
-    setHardDeadline(window);
-    if (connectWifi(std::min<int64_t>(deadline-2000,monotonicMs()+immediateConnectMs),1))
-        uploadChunks(deadline,immediateUploadChunks,true);
-    stopWifi();
+    if (state.phase!=Phase::result) return;
+    const auto start=monotonicMs();
+    const auto attempts=state.attempts;
+    uploadReport={};
+    uploadReport.sequence=state.sequence;
+    strlcpy(uploadReport.id,state.id,sizeof(uploadReport.id));
+    uploadReport.reason=tryImmediateUpload();
+    uploadReport.elapsedMs=std::min<int64_t>(31000,monotonicMs()-start);
+    uploadReport.httpAttempts=state.attempts-attempts;
+    uploadReport.confirmedSamples=state.cursor;
+    saveUploadReport();
+    ESP_LOGI("experiment","Immediate upload: %s, %lu confirmations, %ld ms",
+        uploadReasons[unsigned(uploadReport.reason)],(unsigned long)uploadReport.confirmedSamples,(long)uploadReport.elapsedMs);
 }
 
 void upload(int64_t deadline) {

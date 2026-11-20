@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {template,summarizeRecipe,traceModel,runLabel} from '../../docs/admin/station/experiment-model.mjs';
+import {template,summarizeRecipe,traceModel,runLabel,immediateUploadSummary} from '../../docs/admin/station/experiment-model.mjs';
 import {validateRecipe} from '../src/station/experiments.js';
 test('UI summary and server agree on the default experiment limits',()=>{
   assert.deepEqual(validateRecipe(template),template);
@@ -23,4 +23,13 @@ test('UI does not equate assignment, device report, upload completion and succes
   assert.match(runLabel({...run,status:'completed'}),/수집 완료/);
   const html=readFileSync(new URL('../../docs/admin/station/index.html',import.meta.url),'utf8');
   assert.match(html,/초안 저장 · 실행하지 않음/);assert.match(html,/실행 보고 버전/);assert.match(html,/승인된 목표 버전/);
+});
+test('immediate diagnostics distinguish successful upload, missing evidence and Wi-Fi/IP timeout',()=>{
+  const report={schema_version:1,reason:'wifi_ip_timeout',battery_mv:3818,wifi_ms:8000,
+    elapsed_ms:8123,http_attempts:0,confirmed_samples:0};
+  assert.match(immediateUploadSummary(JSON.stringify(report)),/IP 대기 시간 초과.*3\.818V.*8\.00초.*HTTPS 0회.*0표본/);
+  assert.match(immediateUploadSummary(JSON.stringify({...report,reason:'completed',http_attempts:6,confirmed_samples:580})),
+    /전량 확인.*HTTPS 6회.*580표본/);
+  for(const absent of [null,undefined,'corrupt data','{"schema_version":1,"reason":"__proto__"}'])
+    assert.equal(immediateUploadSummary(absent),'즉시 전송 진단 없음');
 });

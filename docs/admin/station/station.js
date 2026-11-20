@@ -1,8 +1,11 @@
 import { scheduleLabel, staleMilliseconds } from '../../weather/schedule.mjs?v=20261117-policy';
-import { setupExperiments } from './experiments.js?v=20261119-v2';
+import { setupExperiments } from './experiments.js?v=20261120-immediate-upload';
 const device = document.querySelector("#device"), releases = document.querySelector("#release");
 const notice = document.querySelector("#notice");
+const otaApproval = document.querySelector('#ota-approval');
+const otaPrepare = document.querySelector('#prepare-ota-approval');
 let stations = [], releaseRows = [], busy = false;
+let preparedOta = null;
 const experiments=setupExperiments({api,run,device,getStatus:()=>{
   const row=stations.find(s=>s.device_id===device.value);return row?.reported_status?JSON.parse(row.reported_status):null;
 }});
@@ -67,6 +70,7 @@ function showState() {
   }, null, 2) : "등록된 기상대가 없습니다. 운영 등록 전에는 정상입니다.";
 }
 async function refresh() {
+  clearOtaApproval();
   const data = await api(); stations = data.stations; releaseRows = data.releases;
   document.querySelector("#readiness").textContent = `서버 저장소: ${data.readiness.storage ? "준비됨" : "미설정"} · 서명 공개키: ${data.readiness.signing_key ? "설정됨" : "미설정"} · 승인이나 HTTP 성공만으로 설치 완료를 판정하지 않습니다.`;
   const previous = device.value, previousRelease = releases.value;
@@ -98,10 +102,38 @@ async function run(work) {
   catch (error) { notice.textContent = error.message; }
   finally { busy = false; document.querySelectorAll("button").forEach(button => button.disabled = false); }
 }
+function clearOtaApproval() {
+  preparedOta = null;
+  otaApproval.hidden = true;
+  otaPrepare.setAttribute('aria-expanded','false');
+}
+otaPrepare.addEventListener('click', () => {
+  if (busy) return;
+  const release = releaseRows.find(row => row.sha256 === releases.value);
+  if (!device.value || !release) {
+    notice.textContent = '등록된 기상대와 배포할 버전을 선택하세요.';
+    return;
+  }
+  preparedOta = { deviceId: device.value, sha256: release.sha256 };
+  document.querySelector('#ota-approval-description').textContent =
+    `${device.value}에 ${release.version} (${release.sha256.slice(0,12)}) 자동 OTA를 승인할까요? 장치가 다음 기상 때 보호 조건을 확인합니다.`;
+  otaApproval.hidden = false;
+  otaPrepare.setAttribute('aria-expanded','true');
+});
+document.querySelector('#cancel-ota-approval').addEventListener('click', clearOtaApproval);
+releases.addEventListener('change', clearOtaApproval);
+document.querySelector('#confirm-ota-approval').addEventListener('click', () => run(async () => {
+  const selected = preparedOta;
+  clearOtaApproval();
+  if (!selected || selected.deviceId !== device.value || selected.sha256 !== releases.value)
+    throw new Error('선택이 변경되었습니다. 대상 버전을 다시 확인하세요.');
+  await api(`/${encodeURIComponent(selected.deviceId)}`, { action: 'approve', sha256: selected.sha256 });
+  await refresh();
+}));
 document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => run(async () => {
   if (!device.value) throw new Error("기상대 등록이 먼저 필요합니다.");
+  clearOtaApproval();
   const action = button.dataset.action;
-  if (action === "approve" && (!releases.value || !confirm("선택한 펌웨어를 이 기상대에 자동 배포할까요?"))) return;
   if (action === 'manual_ota' && (!releases.value || !confirm('이미 승인된 선택 버전에 한해, 1시간 동안 3.5V 이상에서 OTA를 허용할까요? 비상 상태와 재시도 제한은 유지됩니다.'))) return;
   await api(`/${encodeURIComponent(device.value)}`, { action, sha256: releases.value }); await refresh();
 })));
@@ -125,6 +157,6 @@ document.querySelector("#register").addEventListener("click", () => run(async ()
     throw new Error(`업로드 실패 (${response.status}). 인증·서명·파일 일치를 확인하세요. 자동 재시도하지 않습니다.`);
   await refresh();
 }));
-device.addEventListener("change", () => run(async () => { showState(); await showEvents(); await experiments.refresh(); }));
+device.addEventListener("change", () => run(async () => { clearOtaApproval(); showState(); await showEvents(); await experiments.refresh(); }));
 document.querySelector("#refresh").addEventListener("click", () => run(refresh));
 run(refresh);

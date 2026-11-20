@@ -1,5 +1,26 @@
 export const stepNames={idle:'대기 · 회복',cpu_load:'CPU 부하',wifi_connect:'Wi-Fi 연결',network_probe:'HTTPS 시험 전송',wifi_stop:'Wi-Fi 정지'};
 export const outcomeNames={completed:'정상 종료',interrupted:'재부팅·기한 초과로 중단',expired:'유효기간 만료',clock_unavailable:'시각 미확인',battery_not_ready:'시작 전압 조건 미충족',backlog_pending:'미전송 관측 우선 처리',sampler_failed:'샘플러 시작 실패',low_voltage:'저전압 중단',adc_unavailable:'전압 계측 실패',sample_limit:'표본 한도 도달',network_failed:'시험 통신 실패'};
+const immediateReasons={
+  interrupted:'재부팅 또는 기한 초과로 중단',experiment_not_completed:'실험이 정상 종료되지 않아 건너뜀',
+  clock_unavailable:'시각 미확인',emergency:'비상 절전 상태',battery_unavailable:'배터리 전압 미확인',
+  battery_low:'즉시 전송 전압 조건 미충족',window_too_short:'다음 관측까지 시간이 부족해 건너뜀',
+  wifi_failed:'Wi-Fi 재연결 실패',wifi_start_failed:'Wi-Fi 시작 실패',wifi_connect_failed:'Wi-Fi 재연결 호출 오류',
+  wifi_ip_timeout:'Wi-Fi 재연결·IP 대기 시간 초과',deadline:'전송 시간 한도 도달',
+  http_failed:'HTTPS 전송 또는 응답 확인 실패',storage_error:'로컬 저장 실패',
+  attempt_limit:'전송 시도 한도 도달',completed:'같은 기상에서 전량 확인'
+};
+export function immediateUploadSummary(value) {
+  let report;
+  try { report=JSON.parse(value); } catch { return '즉시 전송 진단 없음'; }
+  if (report?.schema_version!==1 || !Object.hasOwn(immediateReasons,report.reason)) return '즉시 전송 진단 없음';
+  const info=[`즉시 전송: ${immediateReasons[report.reason]}`];
+  if(Number.isInteger(report.battery_mv)) info.push(`배터리 ${(report.battery_mv/1000).toFixed(3)}V`);
+  if(Number.isInteger(report.wifi_ms)) info.push(`Wi-Fi ${(report.wifi_ms/1000).toFixed(2)}초`);
+  if(Number.isInteger(report.elapsed_ms)) info.push(`전체 ${(report.elapsed_ms/1000).toFixed(2)}초`);
+  if(Number.isInteger(report.http_attempts)) info.push(`HTTPS ${report.http_attempts}회`);
+  if(Number.isInteger(report.confirmed_samples)) info.push(`즉시 확인 ${report.confirmed_samples}표본`);
+  return info.join(' · ');
+}
 export const template={schema_version:1,sample_interval_ms:50,steps:[
   {action:'idle',duration_ms:2000},{action:'cpu_load',duration_ms:2000},{action:'wifi_connect',duration_ms:8000},
   {action:'network_probe',duration_ms:6000},{action:'wifi_stop',duration_ms:100},{action:'idle',duration_ms:5000}]};

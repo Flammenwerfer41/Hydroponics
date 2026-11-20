@@ -19,7 +19,8 @@ static void wifiEvent(void*, esp_event_base_t base, int32_t event, void*) {
     if (base == IP_EVENT && event == IP_EVENT_STA_GOT_IP) xEventGroupSetBits(wifiEvents, 1);
     if (base == WIFI_EVENT && event == WIFI_EVENT_STA_DISCONNECTED) xEventGroupClearBits(wifiEvents, 1);
 }
-bool connectWifi(int64_t deadline, int maxAttempts) {
+bool connectWifi(int64_t deadline, int maxAttempts, WifiConnectFailure* failure) {
+    if (failure) *failure = WifiConnectFailure::Other;
     if (!strlen(STATION_WIFI_SSID) || strlen(STATION_WIFI_SSID) > 32 || strlen(STATION_WIFI_PASSWORD) > 64)
         return false;
     if (!started) {
@@ -40,15 +41,23 @@ bool connectWifi(int64_t deadline, int maxAttempts) {
     }
     if (!radioRunning) {
         xEventGroupClearBits(wifiEvents, 1);
-        if (esp_wifi_start() != ESP_OK) return false;
+        if (esp_wifi_start() != ESP_OK) {
+            if (failure) *failure = WifiConnectFailure::Start;
+            return false;
+        }
         radioRunning = true;
     }
     if (xEventGroupGetBits(wifiEvents) & 1) return true;
     for (int i = 0; i < std::min(2,maxAttempts) && monotonicMs() < deadline; ++i) {
-        esp_wifi_connect();
+        const auto result = esp_wifi_connect();
+        if (failure && result != ESP_OK) {
+            *failure = WifiConnectFailure::Connect;
+            return false;
+        }
         const int wait = std::min<int64_t>(8000, deadline - monotonicMs());
         if (wait > 0 && (xEventGroupWaitBits(wifiEvents, 1, pdFALSE, pdFALSE, pdMS_TO_TICKS(wait)) & 1)) return true;
         esp_wifi_disconnect();
+        if (failure) *failure = WifiConnectFailure::IpTimeout;
     }
     return false;
 }

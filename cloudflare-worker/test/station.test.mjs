@@ -184,6 +184,73 @@ test('experiment results reject malformed, foreign, oversized and conflicting co
   const outcomes=await Promise.all([post(chunk),post({...chunk,outcome:'interrupted'})]);
   assert.deepEqual(outcomes.map(r=>r.status).sort(),[200,400]);
 });
+test('immediate upload diagnostics are optional, bounded and tied to the authenticated run',async t=>{
+  const env=await environment(t),run=await createExperiment(env),db=env.HYDROPONICS_DB.db;
+  const diagnostic={schema_version:1,id:run.id,sequence:run.sequence,reason:'wifi_ip_timeout',
+    battery_mv:3818,wifi_ms:8000,elapsed_ms:8030,http_attempts:0,confirmed_samples:0};
+  const experiment={...experimentIdle,id:run.id,sequence:run.sequence,state:'result_pending',outcome:'completed',samples:150};
+  const post=(immediate_upload,authorization=`Bearer ${TOKEN}`)=>fetchLocal(request('/v1/station/status',
+    {...status,firmware_version:'2.0.3',experiment:{...experiment,immediate_upload}},
+    {Authorization:authorization}),env);
+  const stored=()=>db.prepare('SELECT immediate_upload,result_meta,status FROM station_experiments WHERE id=?').get(run.id);
+  assert.equal((await post(diagnostic,'')).status,401);
+  assert.equal((await fetchLocal(request(`/admin/api/stations/${ID}/experiments/${run.id}`),env)).status,401);
+  const foreign='diagnostic-test-foreign-token';
+  db.prepare(`INSERT INTO station_control (device_id, hardware, updated_at, updated_by)
+    VALUES ('esp32-01', ?, '2026-01-01', 'test')`).run(HARDWARE);
+  db.prepare(`INSERT INTO device_credentials (id,device_id,label,secret_sha256,created_at)
+    VALUES ('foreign-test','esp32-01','test',?,'2026-01-01')`).run(await sha256Hex(foreign));
+  assert.equal((await post(diagnostic,`Bearer ${foreign}`)).status,200);
+  assert.equal(stored().immediate_upload,null);
+  for(const malformed of [
+    null,
+    {...diagnostic,battery_mv:4800},
+    {...diagnostic,wifi_ms:31000},
+    {...diagnostic,elapsed_ms:32000},
+    {...diagnostic,http_attempts:7},
+    {...diagnostic,confirmed_samples:601},
+    {...diagnostic,reason:'unknown'},
+    {...diagnostic,sequence:0},
+    {...diagnostic,id:crypto.randomUUID()}
+  ]) {
+    assert.equal((await post(malformed)).status,200);
+    assert.equal(stored().immediate_upload,null);
+  }
+
+  const interrupted={...diagnostic,reason:'interrupted',wifi_ms:null,elapsed_ms:null};
+  assert.equal((await post(interrupted)).status,200);
+  assert.deepEqual(JSON.parse(stored().immediate_upload),interrupted);
+  assert.equal(stored().status,'queued');
+  const first=resultChunk(run);
+  assert.equal((await fetchLocal(request('/v1/station/experiment/results',first),env)).status,200);
+  const resultMeta=stored().result_meta;
+  assert.equal((await post(diagnostic)).status,200);
+  assert.deepEqual(JSON.parse(stored().immediate_upload),diagnostic);
+  assert.equal((await post(interrupted)).status,200);
+  assert.deepEqual(JSON.parse(stored().immediate_upload),diagnostic);
+  assert.equal(stored().result_meta,resultMeta);
+  assert.equal((await fetchLocal(request('/v1/station/experiment/results',{...first,offset:100,
+    samples:resultChunk(run,150,100).samples}),env)).status,200);
+  assert.equal(stored().status,'completed');
+  assert.deepEqual(JSON.parse(stored().immediate_upload),diagnostic);
+});
+test('diagnostic write errors do not reject observation acknowledgements or station status',async t=>{
+  const env=await environment(t),run=await createExperiment(env),db=env.HYDROPONICS_DB.db;
+  // Simulate the migration not being available, or a temporary failure of the sidecar write.
+  db.exec('ALTER TABLE station_experiments DROP COLUMN immediate_upload');
+  const diagnostic={schema_version:1,id:run.id,sequence:run.sequence,reason:'battery_low',
+    battery_mv:3484,wifi_ms:null,elapsed_ms:16,http_attempts:0,confirmed_samples:0};
+  const station_status={...status,firmware_version:'2.0.3',experiment:{...experimentIdle,id:run.id,
+    sequence:run.sequence,state:'result_pending',outcome:'completed',samples:150,immediate_upload:diagnostic}};
+  assert.equal((await fetchLocal(request('/v1/station/status',station_status),env)).status,200);
+  const now=new Date();
+  const observed=await fetchLocal(request('/v1/readings',{schema_version:1,reading_id:'diagnostic-test:1',
+    boot_id:'diagnostic-test',sequence:1,measured_at:now.toISOString(),firmware_version:'2.0.3',
+    values:{battery_voltage:3.484},station_status},{'X-Station-Protocol':'1'}),env);
+  assert.equal(observed.status,201);
+  assert.ok((await observed.json()).station_control);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM readings').get().n,1);
+});
 test('interrupted zero-sample results are accepted and cancellation never reassigns a sequence',async t=>{
   const env=await environment(t),run=await createExperiment(env);
   const empty={...resultChunk(run,0),outcome:'interrupted'};

@@ -2,9 +2,15 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const ACTIONS = ['idle','cpu_load','wifi_connect','network_probe','wifi_stop'];
 const OUTCOMES = ['completed','interrupted','expired','clock_unavailable','battery_not_ready',
   'backlog_pending','sampler_failed','low_voltage','adc_unavailable','sample_limit','network_failed'];
+const IMMEDIATE_UPLOAD_REASONS = ['interrupted','experiment_not_completed','clock_unavailable','emergency',
+  'battery_unavailable','battery_low','window_too_short','wifi_failed','wifi_start_failed','wifi_connect_failed',
+  'wifi_ip_timeout','deadline','http_failed','storage_error','attempt_limit','completed'];
+const IMMEDIATE_UPLOAD_FIELDS = ['schema_version','id','sequence','reason','battery_mv','wifi_ms','elapsed_ms',
+  'http_attempts','confirmed_samples'];
 const integer = (x,min,max) => Number.isInteger(x) && x>=min && x<=max;
 const keys = (obj,allowed) => obj && typeof obj==='object' && !Array.isArray(obj) &&
   Object.keys(obj).every(k=>allowed.includes(k));
+const nullableInteger = (x,min,max) => x===null || integer(x,min,max);
 
 export function validateRecipe(input) {
   if (!keys(input,['schema_version','sample_interval_ms','steps']) || input.schema_version!==1 ||
@@ -32,7 +38,26 @@ export function normalizeExperimentStatus(input) {
       !integer(input.sequence,0,2147483647) || !['idle','queued','running','result_pending','storage_error'].includes(input.state) ||
       !(input.id==='' || UUID.test(input.id)) || !(input.outcome==='' || OUTCOMES.includes(input.outcome)) ||
       !integer(input.samples,0,600) || !integer(input.upload_attempts,0,18)) throw Error('Invalid experiment status');
-  return Object.fromEntries(['schema_version','available','sequence','state','id','outcome','samples','upload_attempts'].map(k=>[k,input[k]]));
+  const status=Object.fromEntries(['schema_version','available','sequence','state','id','outcome','samples','upload_attempts'].map(k=>[k,input[k]]));
+  const diagnostic=input.immediate_upload;
+  // Keep ordinary status and telemetry valid even if the optional sidecar is malformed.
+  if (keys(diagnostic,IMMEDIATE_UPLOAD_FIELDS) && diagnostic.schema_version===1 &&
+      typeof diagnostic.id==='string' && UUID.test(diagnostic.id) && integer(diagnostic.sequence,1,input.sequence) &&
+      IMMEDIATE_UPLOAD_REASONS.includes(diagnostic.reason) && nullableInteger(diagnostic.battery_mv,2000,4500) &&
+      nullableInteger(diagnostic.wifi_ms,0,30000) && nullableInteger(diagnostic.elapsed_ms,0,31000) &&
+      integer(diagnostic.http_attempts,0,6) && integer(diagnostic.confirmed_samples,0,600)) {
+    status.immediate_upload=Object.fromEntries(IMMEDIATE_UPLOAD_FIELDS.map(k=>[k,diagnostic[k]]));
+  }
+  return status;
+}
+export async function storeImmediateUpload(db,deviceId,diagnostic) {
+  // A later status may still carry the previous run. Bind all three identifiers; never
+  // change the run's result metadata. A delayed interrupted marker cannot erase the final report.
+  await db.prepare(`UPDATE station_experiments SET immediate_upload=?1
+    WHERE device_id=?2 AND id=?3 AND sequence=?4 AND status!='cancelled'
+      AND immediate_upload IS NOT ?1
+      AND (immediate_upload IS NULL OR json_extract(immediate_upload,'$.reason')='interrupted')`)
+    .bind(JSON.stringify(diagnostic),deviceId,diagnostic.id,diagnostic.sequence).run();
 }
 export async function experimentControl(db,deviceId,now) {
   const row=await db.prepare(`SELECT * FROM station_experiments WHERE device_id=?1 AND status='queued'

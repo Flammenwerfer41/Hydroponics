@@ -3,7 +3,7 @@ import { authenticateDevice } from "../ingestion/auth.js";
 import { jsonResponse } from "../http/response.js";
 import { HARDWARE, SHA_PATTERN, INTERVALS, normalizeStatus, validateManifest, verifyManifest } from "./contract.js";
 import { readLimited, uploadFirmware, verifyStoredImage } from "./firmware.js";
-import { experimentControl, experimentAction, storeExperimentResult } from './experiments.js';
+import { experimentControl, experimentAction, storeExperimentResult, storeImmediateUpload } from './experiments.js';
 
 const response = (body, status = 200) => jsonResponse(body, status, { "Cache-Control": "no-store" });
 const error = (message, status = 400) => response({ error: { message } }, status);
@@ -36,6 +36,11 @@ export async function recordStationStatus(database, deviceId, input) {
   const status = normalizeStatus(input);
   await database.prepare(`UPDATE station_control SET reported_at = ?1, reported_status = ?2
     WHERE device_id = ?3`).bind(new Date().toISOString(), JSON.stringify(status), deviceId).run();
+  if (status.experiment?.immediate_upload) {
+    // Diagnostics must never break readings acknowledgements or ordinary device control.
+    try { await storeImmediateUpload(database, deviceId, status.experiment.immediate_upload); }
+    catch { console.warn('Station immediate upload diagnostic could not be saved'); }
+  }
 }
 
 export async function completeStationOta(database, deviceId, target, reading, now) {

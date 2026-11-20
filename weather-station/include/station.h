@@ -58,7 +58,8 @@ bool loadRetry(RetryState& state);
 bool saveRetry(const RetryState& state);
 bool consumeMaintenance(const char* id);
 cJSON* recordJson(const Record& record);
-bool connectWifi(int64_t deadline, int maxAttempts = 2);
+enum class WifiConnectFailure { Other, Start, Connect, IpTimeout };
+bool connectWifi(int64_t deadline, int maxAttempts = 2, WifiConnectFailure* failure = nullptr);
 void stopWifi();
 bool syncClock(int64_t deadline);
 // No redirects, strict HTTPS validation, bounded response and timeout.

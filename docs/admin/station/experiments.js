@@ -1,4 +1,4 @@
-import {template,summarizeRecipe,stepNames,outcomeNames,runLabel,traceModel} from './experiment-model.mjs?v=20261119';
+import {template,summarizeRecipe,stepNames,outcomeNames,runLabel,traceModel,immediateUploadSummary} from './experiment-model.mjs?v=20261120-immediate-upload';
 const el=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function setupExperiments({api,run,device,getStatus}) {
@@ -54,6 +54,7 @@ export function setupExperiments({api,run,device,getStatus}) {
     const {meta,points,min,max}=traceModel(payload);
     el('result-heading').textContent=row.title || `실험 #${row.sequence}`;
     el('result-summary').textContent=meta?`${outcomeNames[meta.outcome] || meta.outcome} · ${points.length}/${meta.total_samples}표본 수신 · 실행 펌웨어 ${meta.firmware_version}${min===null?'':` · ${min.toFixed(3)}–${max.toFixed(3)}V`} · ${payload.experiment.status==='completed'?'수집 완료':'부분 결과'}`:'아직 결과가 없습니다. 수신 대기 상태를 실행 완료로 해석하지 마세요.';
+    el('immediate-upload-summary').textContent=immediateUploadSummary(payload.experiment.immediate_upload);
     const graph=el('experiment-chart');graph.replaceChildren();
     if(min===null){graph.append(node('p','유효한 전압 표본이 아직 없습니다.'));return;}
     const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 900 310');svg.setAttribute('role','img');svg.setAttribute('aria-label','실험 단계별 배터리 전압 시계열');
