@@ -214,11 +214,17 @@ bool runPending() {
     return true;
 }
 
-void upload(int64_t deadline) {
+static bool immediateVoltageReady() {
+    const auto voltage = batteryAverage();
+    return observeBattery(voltage,false) && !emergencyMode() && policy::millivolts(voltage)>=startMv;
+}
+
+static void uploadChunks(int64_t deadline, int maxChunks, bool checkBattery) {
     if (!ready || state.phase!=Phase::result || emergencyMode() || !validClock() ||
         state.attempts>=maxUploadAttempts || time(nullptr)<state.nextUpload) return;
-    // At most two chunks per wake. Persist attempt before HTTP; a reset consumes an attempt.
-    for (int sent=0;sent<2 && monotonicMs()+2000<deadline && state.phase==Phase::result && state.attempts<maxUploadAttempts;++sent) {
+    for (int sent=0;sent<maxChunks && monotonicMs()+2000<deadline && state.phase==Phase::result && state.attempts<maxUploadAttempts;++sent) {
+        if (checkBattery && !immediateVoltageReady()) return;
+        // Persist attempt before HTTP; a reset consumes an attempt and preserves the backoff.
         ++state.attempts; state.nextUpload=time(nullptr)+3600;
         if (!save()) { ready=false; return; }
         auto body=cJSON_CreateObject();
@@ -257,5 +263,25 @@ void upload(int64_t deadline) {
         if (next==state.sampleCount) state.phase=Phase::empty;
         if (!save()) { ready=false; return; }
     }
+}
+
+void uploadAfterRun() {
+    // Only a normal, durably saved result can extend the wake. In particular, do not
+    // override the sampler's short abort deadline or reconnect after a failed test.
+    if (!ready || state.phase!=Phase::result || strcmp(state.outcome,"completed") ||
+        !validClock() || emergencyMode() || !immediateVoltageReady()) return;
+    const auto now = time(nullptr);
+    const auto window = immediateWindowSeconds(policy::nextSlot(now,activePeriod())-now);
+    if (!window) return;
+    auto deadline=monotonicMs() + (window-1)*1000;
+    setHardDeadline(window);
+    if (connectWifi(std::min<int64_t>(deadline-2000,monotonicMs()+immediateConnectMs),1))
+        uploadChunks(deadline,immediateUploadChunks,true);
+    stopWifi();
+}
+
+void upload(int64_t deadline) {
+    // On later ordinary wakes, observation upload keeps priority and this smaller budget remains.
+    uploadChunks(deadline,ordinaryUploadChunks,false);
 }
 }

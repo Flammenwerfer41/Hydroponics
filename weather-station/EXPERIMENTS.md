@@ -34,9 +34,13 @@ To add another kind of action, update the firmware and recipe schema/validators 
    expiry, battery, queue backlog and OTA self-test state. Battery sampling is already initialized.
 4. A durable `running` marker is written **before** executing any step.
 5. One ADC task samples through the steps into a bounded RAM buffer. CPU/network actions run separately.
-6. Stop sampling and radio, then save the result in NVS and deep sleep. No result upload during recovery.
-7. From the following ordinary wake, upload at most two chunks per wake, after normal observation upload.
-   Retry identity is `(device, experiment id, offset)`. A matching acknowledgement advances the cursor.
+6. Stop sampling and radio, then save the result in NVS. No result upload during recovery.
+7. In v2.0.2, after a normally completed, saved run, attempt the entire result in the same wake:
+   one Wi-Fi connection attempt, up to six 100-sample chunks, and a separate maximum 30-second window
+   bounded by the next regular slot. Require at least 3.5 V before connecting and before each chunk.
+   Abnormal runs, unsafe battery or insufficient time skip this immediate attempt. v2.0.0–2.0.1 always defer.
+8. From the following ordinary wake, upload any remaining chunks (at most two per wake), after normal
+   observation upload. Retry identity is `(device, experiment id, offset)`. A matching acknowledgement advances the cursor.
    The server can rewind to a missing chunk after restore; the device releases the trace only after an
    explicit whole-result acknowledgement. These recovery requests still count against the 18-attempt budget.
 
@@ -65,7 +69,7 @@ Do not reuse old database sequence numbers after restoring D1: restore the seque
 | Runtime protection | independent rolling mean of 8 valid samples below 3.4 V aborts; 8 consecutive invalid samples abort |
 | Abort deadline | shorten remaining budget to 3 seconds; if save cannot finish, next wake reports interrupted |
 | Emergency | existing <=3.3 V / unavailable rule remains; OTA and maintenance cannot execute inside a run |
-| Delivery | 100 samples per chunk, 2 chunks/wake, at most 18 HTTP attempts total per run |
+| Delivery | 100 samples per chunk; v2.0.2 up to 6 just after a normal run, otherwise 2 per ordinary wake; at most 18 HTTP attempts total per run |
 | Failed delivery | wait at least 1 hour before another wake attempts delivery; attempt persisted **before** HTTP |
 | Exhausted delivery | retain result, no more uploads; administrator must explicitly discard to unblock experiments |
 | Storage | existing records partition, separate `experiment_v2` namespace; no partition change or queue erasure |

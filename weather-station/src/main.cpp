@@ -111,7 +111,10 @@ extern "C" void app_main() {
     bool sensorReady = initSensors(); // Missing BME280 must not suppress battery records or trigger rollback.
     ESP_LOGI(TAG, "BME280=%s; SDA=19 SCL=20; battery ADC0", sensorReady ? "ready" : "unavailable");
     if (!experiment::init()) ESP_LOGW(TAG,"Experiment storage unavailable; ordinary observations continue");
-    if (experiment::runPending()) sleepUntilSlot();
+    if (experiment::runPending()) {
+        experiment::uploadAfterRun();
+        sleepUntilSlot();
+    }
     Record record = measure();
     if (!observeBattery(record.battery, true)) sleepUntilSlot();
     const int wakeSeconds = emergencyMode() ? 20 : policy::normalSeconds;

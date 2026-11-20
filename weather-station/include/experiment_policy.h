@@ -4,7 +4,20 @@
 namespace experiment {
 constexpr int maxSteps = 8, maxSamples = 600, maxDurationMs = 60000;
 constexpr int chunkSize = 100, maxUploadAttempts = 18;
+constexpr int ordinaryUploadChunks = 2;
+constexpr int immediateUploadChunks = (maxSamples + chunkSize - 1) / chunkSize;
+constexpr int immediateUploadSeconds = 30, minImmediateWindowSeconds = 8;
+constexpr int immediateConnectMs = 8000;
 constexpr int startMv = 3500, abortMv = 3400;
+constexpr int immediateWindowSeconds(int64_t secondsUntilNextSlot) {
+    // Leave one second before the next ordinary observation.
+    const auto available = secondsUntilNextSlot - 1;
+    return available < minImmediateWindowSeconds ? 0
+        : available > immediateUploadSeconds ? immediateUploadSeconds : int(available);
+}
+static_assert(immediateUploadChunks == 6 && immediateUploadChunks <= maxUploadAttempts);
+static_assert(immediateWindowSeconds(300) == 30 && immediateWindowSeconds(24) == 23);
+static_assert(immediateWindowSeconds(8) == 0 && immediateWindowSeconds(9) == 8);
 struct VoltageGuard {
     int recent[8]={}, count=0, at=0, invalid=0, meanMv=-1;
     constexpr int observe(bool valid,int mv) {
