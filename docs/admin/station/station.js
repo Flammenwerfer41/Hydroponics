@@ -1,5 +1,5 @@
 import { scheduleLabel, staleMilliseconds } from '../../weather/schedule.mjs?v=20261117-policy';
-import { setupExperiments } from './experiments.js?v=20261120-immediate-upload';
+import { setupExperiments } from './experiments.js?v=20261120-bme-test';
 const device = document.querySelector("#device"), releases = document.querySelector("#release");
 const notice = document.querySelector("#notice");
 const otaApproval = document.querySelector('#ota-approval');

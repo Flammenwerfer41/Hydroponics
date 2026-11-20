@@ -44,6 +44,10 @@ bool validClock();
 [[noreturn]] void sleepUntilSlot();
 void setHardDeadline(int seconds);
 bool initSensors();
+struct EnvironmentReading { float temperature, humidity, pressure; };
+// Observer: 1 while commanding/waiting for forced conversion, 2 while reading/compensating, 0 after.
+using EnvironmentPhaseObserver = void (*)(uint16_t phase, void* context);
+bool readEnvironment(EnvironmentReading& reading, EnvironmentPhaseObserver observe = nullptr, void* context = nullptr);
 // Individual calibrated ADC conversion; no firmware averaging. Not cell OCV.
 bool batterySample(int& raw, int& batteryMv);
 float batteryAverage();

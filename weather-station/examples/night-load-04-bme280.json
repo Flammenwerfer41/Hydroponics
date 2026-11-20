@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "sample_interval_ms": 20,
+  "steps": [
+    { "action": "idle", "duration_ms": 2000 },
+    { "action": "bme_measure", "duration_ms": 7000 },
+    { "action": "idle", "duration_ms": 2000 }
+  ]
+}

@@ -39,12 +39,13 @@ constexpr bool protectionChecks() {
     return !noisy.observe(true,2500) && noisy.meanMv>abortMv;
 }
 static_assert(protectionChecks());
-enum class Action : uint8_t { idle, cpu, wifiConnect, probe, wifiStop };
+enum class Action : uint8_t { idle, cpu, wifiConnect, probe, wifiStop, bmeMeasure };
+constexpr int bmeRepeatMs=130, bmeMinRemainingMs=30;
 struct Step { Action action{}; uint32_t durationMs = 0; };
 constexpr bool validInterval(int ms) { return ms >= 20 && ms <= 1000 && ms % 10 == 0; }
 constexpr bool validSteps(const Step* steps, int count, int interval) {
     if (count < 1 || count > maxSteps || !validInterval(interval)) return false;
-    int total = 0, connects = 0, probes = 0;
+    int total = 0, connects = 0, probes = 0, bmeSteps = 0;
     bool radio = false;
     for (int i=0; i<count; ++i) {
         const auto s = steps[i];
@@ -54,6 +55,7 @@ constexpr bool validSteps(const Step* steps, int count, int interval) {
             case Action::wifiConnect: if (radio || ++connects > 1 || s.durationMs < 1000) return false; radio=true; break;
             case Action::probe: if (!radio || ++probes > 1 || s.durationMs < 1000) return false; break;
             case Action::wifiStop: if (!radio) return false; radio=false; break;
+            case Action::bmeMeasure: if (radio || ++bmeSteps>1 || s.durationMs<1000) return false; break;
             case Action::idle: case Action::cpu: break;
             default: return false;
         }
@@ -65,6 +67,10 @@ constexpr Step example[] = {{Action::idle,2000},{Action::cpu,2000},{Action::wifi
     {Action::probe,2000},{Action::wifiStop,100},{Action::idle,3000}};
 static_assert(validSteps(example,6,50));
 static_assert(!validSteps(example,6,20));
+constexpr Step bmeExample[]={{Action::idle,2000},{Action::bmeMeasure,7000},{Action::idle,2000}};
+constexpr Step bmeWithRadio[]={{Action::wifiConnect,3000},{Action::bmeMeasure,3000},{Action::wifiStop,100}};
+constexpr Step bmeRepeated[]={{Action::bmeMeasure,1000},{Action::bmeMeasure,1000}};
+static_assert(validSteps(bmeExample,3,20) && !validSteps(bmeWithRadio,3,20) && !validSteps(bmeRepeated,2,20));
 constexpr Step badProbe[] = {{Action::probe,1000}};
 static_assert(!validSteps(badProbe,1,100));
 constexpr Step shortRun[] = {{Action::idle,1000}};

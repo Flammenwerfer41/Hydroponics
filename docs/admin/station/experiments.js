@@ -1,10 +1,17 @@
-import {template,summarizeRecipe,stepNames,outcomeNames,runLabel,traceModel,immediateUploadSummary} from './experiment-model.mjs?v=20261120-immediate-upload';
+import {template,summarizeRecipe,stepNames,outcomeNames,runLabel,traceModel,immediateUploadSummary,sensorPhaseCounts} from './experiment-model.mjs?v=20261120-bme-test';
 const el=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function setupExperiments({api,run,device,getStatus}) {
-  let draft=null,selected=null,data=null;
+  let draft=null,selected=null,data=null,approval=null;
   const path=()=>`/${encodeURIComponent(device.value)}`;
+  function clearApproval() {
+    if(!approval)return;
+    approval.panel.hidden=true;
+    approval.prepare.setAttribute('aria-expanded','false');
+    approval=null;
+  }
   function edit(row=null) {
+    clearApproval();
     if(row)el('experiment-editor').open=true;
     draft=row?.approved_id?null:row;
     el('experiment-title').value=row?.title || '통신 부하와 전압 회복';
@@ -21,7 +28,34 @@ export function setupExperiments({api,run,device,getStatus}) {
     }catch(e){el('recipe-summary').textContent=e.message;el('recipe-steps').replaceChildren();}
   }
   function button(label,fn){const b=node('button',label);b.type='button';b.addEventListener('click',()=>run(fn));return b;}
+  function draftApproval(d,info,requested) {
+    const prepare=node('button','실행 승인');prepare.type='button';
+    const panel=node('div',undefined,'callout');panel.id=`experiment-approval-${d.id}`;panel.hidden=true;
+    prepare.setAttribute('aria-controls',panel.id);prepare.setAttribute('aria-expanded','false');
+    const description=node('p',`${requested}에서 “${d.title}” 수정본 ${d.revision}을 실행 승인할까요?`);
+    description.id=`${panel.id}-description`;
+    panel.setAttribute('role','group');panel.setAttribute('aria-labelledby',description.id);
+    const details=node('p',`${info.seconds}초 · ${info.interval}ms · 최대 ${info.bound}표본. 장치에 저장된 뒤에는 취소가 즉시 적용되지 않습니다.`);
+    const apply=button('실험 실행 확정',async()=>{
+      if(approval?.panel!==panel || device.value!==requested) {clearApproval();throw Error('대상 기상대 또는 초안이 바뀌었습니다. 다시 확인하세요.');}
+      clearApproval();
+      await api(`/${encodeURIComponent(requested)}`,{action:'experiment_approve',id:d.id,revision:d.revision});
+      if(draft?.id===d.id)edit();
+      await refresh();
+    });
+    const cancel=node('button','승인 취소');cancel.type='button';
+    cancel.addEventListener('click',()=>{clearApproval();prepare.focus();});
+    panel.append(description,details,apply,cancel);
+    prepare.addEventListener('click',()=>{
+      if(device.value!==requested)return;
+      clearApproval();
+      approval={panel,prepare};panel.hidden=false;prepare.setAttribute('aria-expanded','true');
+      cancel.focus();
+    });
+    return [prepare,panel];
+  }
   async function refresh() {
+    clearApproval();
     if(!device.value)return;
     const requested=device.value;
     const result=await api(`${path()}/experiments`);
@@ -30,10 +64,7 @@ export function setupExperiments({api,run,device,getStatus}) {
     el('draft-list').replaceChildren(...drafts.map(d=>{
       const box=node('article',undefined,'experiment-item');box.append(node('h3',d.title),node('p',d.purpose),node('p',`초안 · 수정본 ${d.revision}`,'hint'));
       const info=summarizeRecipe(JSON.parse(d.recipe));box.append(node('p',`${info.seconds}초 · ${info.interval}ms · 최대 ${info.bound}표본`));
-      box.append(button('초안 편집',async()=>edit(d)),button('실행 승인',async()=>{
-        if(!confirm(`“${d.title}” 수정본 ${d.revision}을 승인할까요?\n${info.seconds}초 · ${info.interval}ms · 최대 ${info.bound}표본\n장치에 저장된 뒤에는 취소가 즉시 적용되지 않습니다.`))return;
-        await api(path(),{action:'experiment_approve',id:d.id,revision:d.revision});if(draft?.id===d.id)edit();await refresh();
-      }));return box;
+      box.append(button('초안 편집',async()=>edit(d)),...draftApproval(d,info,requested));return box;
     }));
     if(!drafts.length)el('draft-list').append(node('p','저장된 초안이 없습니다.','hint'));
     el('experiment-list').replaceChildren(...result.experiments.map(r=>{
@@ -71,9 +102,16 @@ export function setupExperiments({api,run,device,getStatus}) {
     let d='',pen=false;
     for(const p of points){if(p.gap)pen=false;if(p.voltage===null){pen=false;continue;}d+=`${pen?'L':'M'}${x(p.time).toFixed(2)},${y(p.voltage).toFixed(2)} `;pen=true;}
     draw('path',{d,fill:'none',stroke:'#12745b','stroke-width':2});
+    for(const p of points)if(Number.isFinite(p.voltage) && (p.sensorPhase===1 || p.sensorPhase===2))
+      draw('circle',{cx:x(p.time),cy:y(p.voltage),r:2.6,fill:p.sensorPhase===1?'#8f5500':'#56309e'});
     if(points.length===1)draw('circle',{cx:x(points[0].time),cy:y(points[0].voltage),r:4,fill:'#12745b'});
     graph.append(svg);
     const legend=node('ol',undefined,'trace-legend');recipe.steps.forEach((s,i)=>legend.append(node('li',`${i+1}. ${stepNames[s.action]} · ${meta?.step_results[i]?.[2]?'완료':'미완료/미실행'}`)));graph.append(legend);
+    const sensorStep=recipe.steps.findIndex(s=>s.action==='bme_measure');
+    if(sensorStep!==-1) {
+      const counts=sensorPhaseCounts(points,sensorStep);
+      graph.append(node('p',`센서 구간의 유효 전압 표본: 측정 사이 ${counts.between}개 · 명령/변환 대기 ${counts.conversion}개(황갈색) · I²C 읽기/보정 ${counts.read}개(보라색). 표본 개수는 센서 측정 횟수가 아닙니다.`,'hint'));
+    }
   }
   el('new-experiment').addEventListener('click',()=>edit());
   el('preview-experiment').addEventListener('click',preview);

@@ -1,7 +1,8 @@
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const ACTIONS = ['idle','cpu_load','wifi_connect','network_probe','wifi_stop'];
+const ACTIONS = ['idle','cpu_load','wifi_connect','network_probe','wifi_stop','bme_measure'];
 const OUTCOMES = ['completed','interrupted','expired','clock_unavailable','battery_not_ready',
-  'backlog_pending','sampler_failed','low_voltage','adc_unavailable','sample_limit','network_failed'];
+  'backlog_pending','sampler_failed','low_voltage','adc_unavailable','sample_limit','network_failed','sensor_failed'];
+const RELEASE_VERSION = /^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})$/;
 const IMMEDIATE_UPLOAD_REASONS = ['interrupted','experiment_not_completed','clock_unavailable','emergency',
   'battery_unavailable','battery_low','window_too_short','wifi_failed','wifi_start_failed','wifi_connect_failed',
   'wifi_ip_timeout','deadline','http_failed','storage_error','attempt_limit','completed'];
@@ -11,12 +12,18 @@ const integer = (x,min,max) => Number.isInteger(x) && x>=min && x<=max;
 const keys = (obj,allowed) => obj && typeof obj==='object' && !Array.isArray(obj) &&
   Object.keys(obj).every(k=>allowed.includes(k));
 const nullableInteger = (x,min,max) => x===null || integer(x,min,max);
+const supportsBmeMeasure = version => {
+  const parts=RELEASE_VERSION.exec(version || '');
+  if (!parts) return false;
+  const [major,minor,patch]=parts.slice(1).map(Number);
+  return major>2 || (major===2 && (minor>0 || patch>=4));
+};
 
 export function validateRecipe(input) {
   if (!keys(input,['schema_version','sample_interval_ms','steps']) || input.schema_version!==1 ||
       !integer(input.sample_interval_ms,20,1000) || input.sample_interval_ms%10 ||
       !Array.isArray(input.steps) || input.steps.length<1 || input.steps.length>8) throw Error('Invalid experiment recipe');
-  let total=0, radio=false, connects=0, probes=0;
+  let total=0, radio=false, connects=0, probes=0, sensorSteps=0;
   const steps=input.steps.map(s=>{
     if (!keys(s,['action','duration_ms']) || !ACTIONS.includes(s.action) || !integer(s.duration_ms,100,15000))
       throw Error('Invalid experiment step');
@@ -27,6 +34,8 @@ export function validateRecipe(input) {
     }
     if (s.action==='network_probe' && (!radio || ++probes>1 || s.duration_ms<1000)) throw Error('Invalid network probe');
     if (s.action==='wifi_stop') { if (!radio) throw Error('Radio already stopped'); radio=false; }
+    if (s.action==='bme_measure' && (radio || ++sensorSteps>1 || s.duration_ms<1000))
+      throw Error('One BME280 measurement step of at least one second requires Wi-Fi off');
     return {action:s.action,duration_ms:s.duration_ms};
   });
   if (radio || total>60000 || Math.ceil(total/input.sample_interval_ms)+steps.length+2>600)
@@ -109,6 +118,8 @@ export async function experimentAction(db,station,input,actor,now) {
   const receiving=await db.prepare(`SELECT id FROM station_experiments WHERE device_id=?1 AND status='receiving' LIMIT 1`).bind(deviceId).first();
   if (receiving) throw Error('Finish or explicitly cancel pending result upload first');
   const reported=JSON.parse(station.reported_status || '{}');
+  if (recipe.steps.some(step=>step.action==='bme_measure') && !supportsBmeMeasure(reported.firmware_version))
+    throw Error('BME280 experiments require reported firmware 2.0.4 or newer');
   if (!/^([2-9]|[1-9]\d+)\./.test(reported.firmware_version || '') || !reported.experiment?.available ||
       reported.experiment.state!=='idle' || reported.mode==='emergency' ||
       !Number.isFinite(Date.parse(station.reported_at)) || now-Date.parse(station.reported_at)>2*3600000 ||
@@ -138,7 +149,7 @@ export async function experimentAction(db,station,input,actor,now) {
 export function validateResult(input,experiment) {
   const recipe=JSON.parse(experiment.recipe);
   if (!input || input.schema_version!==1 || input.id!==experiment.id || input.sequence!==experiment.sequence ||
-      !/^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})$/.test(input.firmware_version) ||
+      !RELEASE_VERSION.test(input.firmware_version) ||
       !OUTCOMES.includes(input.outcome) || !integer(input.started_epoch,0,2147483647) ||
       input.sample_interval_ms!==recipe.sample_interval_ms || !integer(input.total_samples,0,600) ||
       !integer(input.offset,0,599) || input.offset%100 || input.offset>input.total_samples ||
@@ -148,9 +159,13 @@ export function validateResult(input,experiment) {
     throw Error('Invalid experiment results');
   let previous=-1;
   for (const s of input.samples) {
-    if (!Array.isArray(s) || s.length!==4 || !integer(s[0],0,70000000) || s[0]<=previous ||
+    if (!Array.isArray(s) || !integer(s[0],0,70000000) || s[0]<=previous ||
         !integer(s[1],0,recipe.steps.length-1) || !(s[2]===null || integer(s[2],0,4095)) ||
         !(s[3]===null || integer(s[3],2000,4500))) throw Error('Invalid ADC sample');
+    // Only samples taken within the sensor step carry its subphase. Keep older
+    // sample rows and the underlying JSON/chunk storage format unchanged.
+    const bmeSample=recipe.steps[s[1]].action==='bme_measure';
+    if (bmeSample ? s.length!==5 || !integer(s[4],0,2) : s.length!==4) throw Error('Invalid ADC sample phase');
     previous=s[0];
   }
   for (const s of input.step_results) {

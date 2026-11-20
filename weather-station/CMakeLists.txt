@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-set(PROJECT_VER "2.0.3")
+set(PROJECT_VER "2.0.4")
 include(FetchContent)
 FetchContent_Declare(bosch_bme280
     GIT_REPOSITORY https://github.com/boschsensortec/BME280_SensorAPI.git

@@ -69,7 +69,9 @@ static int64_t number(const cJSON* obj,const char* key) {
         v->valuedouble>2147483647 || floor(v->valuedouble)!=v->valuedouble) return -1;
     return int64_t(v->valuedouble);
 }
-static const char* names[]={"idle","cpu_load","wifi_connect","network_probe","wifi_stop"};
+static const char* names[]={"idle","cpu_load","wifi_connect","network_probe","wifi_stop","bme_measure"};
+static constexpr int actionCount=sizeof(names)/sizeof(*names);
+static_assert(actionCount==int(Action::bmeMeasure)+1);
 static bool uuid(const char* s) {
     if (strlen(s)!=36) return false;
     for (int i=0;i<36;++i) {
@@ -151,7 +153,8 @@ bool accept(const cJSON* control) {
     Step parsed[maxSteps]{};
     for (int i=0;i<count;++i) {
         auto step=cJSON_GetArrayItem(steps,i); int action=0;
-        for (;action<5 && strcmp(str(step,"action"),names[action]);++action) {}
+        for (;action<actionCount && strcmp(str(step,"action"),names[action]);++action) {}
+        if (action==actionCount) return false;
         parsed[i]={Action(action),uint32_t(number(step,"duration_ms"))};
     }
     if (!validSteps(parsed,count,interval)) return false;
@@ -170,6 +173,7 @@ struct Sampling {
     std::atomic<bool> stop{false}, done{false};
     std::atomic<int> abort{0}; // 1 voltage, 2 ADC unavailable, 3 capacity
     std::atomic<unsigned> step{0};
+    std::atomic<uint16_t> sensorPhase{0};
     int64_t start=0;
     float safetyVoltage=NAN;
 };
@@ -181,6 +185,7 @@ static void sampleTask(void* arg) {
         if (state.sampleCount>=maxSamples) { run.abort=3; break; }
         auto& s=state.samples[state.sampleCount++];
         s.us=uint32_t(esp_timer_get_time()-run.start); s.step=run.step.load();
+        s.reserved=run.sensorPhase.load();
         int raw,mv; s.valid=batterySample(raw,mv); s.raw=raw; s.mv=mv;
         run.abort=guard.observe(s.valid,mv);
         run.safetyVoltage=guard.meanMv<0 ? NAN : guard.meanMv/1000.0f;
@@ -195,6 +200,19 @@ static void sampleTask(void* arg) {
     if (run.abort.load()) setHardDeadline(3);
     run.done=true;
     vTaskDelete(nullptr);
+}
+static bool runBme(Sampling& run, int64_t end) {
+    // Repeats are phase-shifted relative to the 20ms ADC cadence. This only calls
+    // the I2C sensor path, never the ordinary Record/ADC/storage/telemetry path.
+    while (!run.abort.load() && monotonicMs()+bmeMinRemainingMs<end) {
+        const auto next=monotonicMs()+bmeRepeatMs;
+        EnvironmentReading reading{};
+        if (!readEnvironment(reading, [](uint16_t phase,void* context) {
+            static_cast<Sampling*>(context)->sensorPhase.store(phase);
+        }, &run)) return false;
+        while (!run.abort.load() && monotonicMs()<std::min(next,end)) vTaskDelay(1);
+    }
+    return true;
 }
 static void finish(const char* outcome) {
     strlcpy(state.outcome,outcome,sizeof(state.outcome)); state.phase=Phase::result;
@@ -232,6 +250,7 @@ bool runPending() {
             ok=wifi && code==200 && !strcmp(str(response,"experiment_id"),state.id);
             cJSON_Delete(response); cJSON_Delete(body);
         }
+        else if (step.action==Action::bmeMeasure) ok=runBme(run,end);
         while (ok && !run.abort.load() && monotonicMs()<end) {
             if (step.action==Action::cpu) {
                 // Synthetic integer work, not a calibrated wattage or a forced clock change.
@@ -242,7 +261,7 @@ bool runPending() {
         }
         state.stepEndUs[i]=esp_timer_get_time()-run.start;
         state.stepOk[i]=ok && !run.abort.load();
-        if (!ok) { outcome="network_failed"; break; }
+        if (!ok) { outcome=step.action==Action::bmeMeasure ? "sensor_failed" : "network_failed"; break; }
     }
     run.stop=true;
     while (!run.done.load()) vTaskDelay(1);
@@ -305,6 +324,9 @@ static UploadReason uploadChunks(int64_t deadline, int maxChunks, bool checkBatt
             cJSON_AddItemToArray(row,cJSON_CreateNumber(s.us)); cJSON_AddItemToArray(row,cJSON_CreateNumber(s.step));
             cJSON_AddItemToArray(row,s.raw>=0 ? cJSON_CreateNumber(s.raw) : cJSON_CreateNull());
             cJSON_AddItemToArray(row,s.valid ? cJSON_CreateNumber(s.mv) : cJSON_CreateNull());
+            // Fifth value is present only on BME samples. Reuse the existing reserved
+            // word to keep the flash record layout and older experiment traces intact.
+            if (state.steps[s.step].action==Action::bmeMeasure) cJSON_AddItemToArray(row,cJSON_CreateNumber(s.reserved));
         }
         int code; auto response=postJson("/v1/station/experiment/results",body,deadline,code); cJSON_Delete(body);
         const auto next=number(response,"next_offset");

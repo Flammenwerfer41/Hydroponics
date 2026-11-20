@@ -96,6 +96,9 @@ const recipe={schema_version:1,sample_interval_ms:50,steps:[
   {action:'wifi_connect',duration_ms:8000},{action:'network_probe',duration_ms:6000},
   {action:'wifi_stop',duration_ms:100},{action:'idle',duration_ms:5000}
 ]};
+const bmeRecipe={schema_version:1,sample_interval_ms:20,steps:[
+  {action:'idle',duration_ms:2000},{action:'bme_measure',duration_ms:7000},{action:'idle',duration_ms:2000}
+]};
 async function createExperiment(env) {
   const result=await fetchLocal(request('/v1/station/status',{...status,firmware_version:'2.0.0',experiment:experimentIdle}),env);
   assert.equal(result.status,200);
@@ -136,6 +139,58 @@ test('drafts never reach a device before explicit immutable-revision approval',a
   await assert.rejects(action(env,{action:'experiment_draft',id:draft.id,revision:2,title:'changed after approval',purpose:'',recipe}));
   await assert.rejects(action(env,{action:'experiment_approve',id:draft.id,revision:2}));
   assert.equal(env.HYDROPONICS_DB.db.prepare('SELECT COUNT(*) AS n FROM station_experiments').get().n,1);
+});
+test('BME280 step is bounded, single, and cannot run with Wi-Fi active',()=>{
+  const bme={action:'bme_measure',duration_ms:1000};
+  const connect={action:'wifi_connect',duration_ms:1000};
+  const stop={action:'wifi_stop',duration_ms:100};
+  assert.deepEqual(validateRecipe(bmeRecipe),bmeRecipe);
+  assert.throws(()=>validateRecipe({...bmeRecipe,steps:[{...bme,duration_ms:999}]}));
+  assert.throws(()=>validateRecipe({...bmeRecipe,steps:[{...bme,duration_ms:15001}]}));
+  assert.throws(()=>validateRecipe({...bmeRecipe,steps:[bme,bme]}));
+  assert.throws(()=>validateRecipe({...bmeRecipe,steps:[connect,bme,stop]}));
+  assert.doesNotThrow(()=>validateRecipe({...bmeRecipe,steps:[connect,stop,bme]}));
+});
+test('BME280 draft creation is version-independent; approval requires reported 2.0.4+',async t=>{
+  const env=await environment(t);
+  const draft=(await action(env,{action:'experiment_draft',title:'BME280 voltage',purpose:'sensor load',recipe:bmeRecipe})).draft;
+  const report=async firmware_version=>{
+    assert.equal((await fetchLocal(request('/v1/station/status',{...status,firmware_version,experiment:experimentIdle}),env)).status,200);
+  };
+  const approve=()=>action(env,{action:'experiment_approve',id:draft.id,revision:draft.revision});
+  for (const version of ['1.10.0','2.0.2','2.0.3']) {
+    await report(version);
+    await assert.rejects(approve(),/2\.0\.4/);
+    await assert.rejects(action(env,{action:'experiment',recipe:bmeRecipe}),/2\.0\.4/);
+    assert.equal((await stationControl(env.HYDROPONICS_DB,ID)).experiment,null);
+  }
+  await report('2.0.4');
+  const {experiment}=await approve();
+  assert.deepEqual(experiment.steps,bmeRecipe.steps);
+  assert.equal((await stationControl(env.HYDROPONICS_DB,ID)).experiment.id,experiment.id);
+});
+test('BME280 sample phase is scoped to its action and preserved on the wire and in storage',async t=>{
+  const env=await environment(t);
+  assert.equal((await fetchLocal(request('/v1/station/status',{...status,firmware_version:'2.0.4',experiment:experimentIdle}),env)).status,200);
+  const run=(await action(env,{action:'experiment',recipe:bmeRecipe})).experiment;
+  const rows=[[1990000,0,2200,3600],[2000000,1,2200,3600,1],[2020000,1,2200,3600,2],
+    [2040000,1,null,null,0],[2060000,1,2200,3600,0]];
+  const result={schema_version:1,id:run.id,sequence:run.sequence,firmware_version:'2.0.4',outcome:'sensor_failed',
+    started_epoch:Math.floor(Date.now()/1000),sample_interval_ms:20,total_samples:rows.length,offset:0,
+    step_results:[[0,2000000,true],[2000000,2060000,false],[0,0,false]],samples:rows};
+  const post=body=>fetchLocal(request('/v1/station/experiment/results',body),env);
+  for (const [i,row] of [[0,[...rows[0],0]],[1,rows[1].slice(0,4)],[2,[...rows[2].slice(0,4),3]],
+    [3,[...rows[3].slice(0,4),'0']]]) {
+    const invalid=structuredClone(result); invalid.samples[i]=row;
+    assert.equal((await post(invalid)).status,400);
+  }
+  const response=await post(result);
+  assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{id:run.id,next_offset:rows.length,complete:true});
+  assert.equal((await post(result)).status,200);
+  const stored=env.HYDROPONICS_DB.db.prepare('SELECT payload FROM station_experiment_chunks WHERE experiment_id=?').get(run.id);
+  assert.deepEqual(JSON.parse(stored.payload),rows);
+  assert.equal(normalizeExperimentStatus({...experimentIdle,outcome:'sensor_failed'}).outcome,'sensor_failed');
 });
 test('experiment assignment is opt-in, one queued run, authenticated and excludes OTA/maintenance',async t=>{
   const env=await environment(t);

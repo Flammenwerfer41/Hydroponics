@@ -105,6 +105,30 @@ float batteryAverage() {
     return sum / 16000.0f;
 }
 
+bool readEnvironment(EnvironmentReading& reading, EnvironmentPhaseObserver observe, void* context) {
+    reading = {NAN, NAN, NAN};
+    if (!sensorReady) return false;
+    if (observe) observe(1, context);
+    if (bme280_set_sensor_mode(BME280_POWERMODE_FORCED, &sensor) != BME280_OK) {
+        if (observe) observe(0, context);
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    if (observe) observe(2, context);
+    bme280_data data{};
+    const bool ok = bme280_get_sensor_data(BME280_ALL, &data, &sensor) == BME280_OK;
+    if (ok) {
+        if (std::isfinite(data.temperature) && data.temperature >= -40 && data.temperature <= 85)
+            reading.temperature = data.temperature;
+        if (std::isfinite(data.humidity) && data.humidity >= 0 && data.humidity <= 100)
+            reading.humidity = data.humidity;
+        if (std::isfinite(data.pressure) && data.pressure >= 30000 && data.pressure <= 120000)
+            reading.pressure = data.pressure / 100.0;
+    }
+    if (observe) observe(0, context);
+    return ok;
+}
+
 Record measure() {
     Record result{};
     result.epoch = validClock() ? time(nullptr) : 0;
@@ -116,17 +140,10 @@ Record measure() {
     result.sequence = sequence++;
     strlcpy(result.version, esp_app_get_description()->version, sizeof(result.version));
     result.battery = batteryAverage();
-    if (sensorReady && bme280_set_sensor_mode(BME280_POWERMODE_FORCED, &sensor) == BME280_OK) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-        bme280_data data{};
-        if (bme280_get_sensor_data(BME280_ALL, &data, &sensor) == BME280_OK) {
-            if (std::isfinite(data.temperature) && data.temperature >= -40 && data.temperature <= 85)
-                result.temperature = data.temperature;
-            if (std::isfinite(data.humidity) && data.humidity >= 0 && data.humidity <= 100)
-                result.humidity = data.humidity;
-            if (std::isfinite(data.pressure) && data.pressure >= 30000 && data.pressure <= 120000)
-                result.pressure = data.pressure / 100.0;
-        }
-    }
+    EnvironmentReading readings{};
+    readEnvironment(readings);
+    result.temperature = readings.temperature;
+    result.humidity = readings.humidity;
+    result.pressure = readings.pressure;
     return result;
 }

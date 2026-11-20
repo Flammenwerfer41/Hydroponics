@@ -25,7 +25,7 @@ The local fixture `node scripts/preview-station-v2.mjs` uses synthetic data and 
 ## What runs on the device
 
 This is a small **declarative state machine**, not a VM, downloaded executable or general-purpose script engine.
-Only `idle`, `cpu_load`, `wifi_connect`, `network_probe`, and `wifi_stop` are recognized.
+Only `idle`, `cpu_load`, `wifi_connect`, `network_probe`, `wifi_stop`, and (from v2.0.4) `bme_measure` are recognized.
 To add another kind of action, update the firmware and recipe schema/validators deliberately.
 
 1. A normal observation upload receives a recipe from the authenticated server.
@@ -48,6 +48,18 @@ An experiment wake intentionally skips the normal weather observation and nightl
 It never inserts a perturbed experiment reading into weather graphs, SoC history or `station_night_closings`.
 For example a 5-minute normal cadence may have a 10-minute weather gap around a run. Avoid the expected
 night-closing slot when planning an experiment; astronomy and regular observations resume next wake.
+
+### BME280-only voltage comparison (v2.0.4)
+
+The [fourth recipe](examples/night-load-04-bme280.json) samples voltage every 20ms:
+2 seconds idle, 7 seconds of forced BME280 measurements, and 2 seconds of recovery.
+The one permitted `bme_measure` step must last at least one second and run with the radio off.
+Only the existing warm sensor command and I²C read/compensation are called, roughly every 130ms;
+BME initialization happens before sampling and is not measured. No ordinary readings are queued.
+The optional fifth value in a BME step sample is its phase: 0 between measurements,
+1 during the forced command/conversion wait, 2 during the I²C data read/compensation.
+Other samples retain their four-element format. Phase is recorded at the ADC sample instant; a
+very short I²C phase may be missed. A failed sensor command/read terminates the test as `sensor_failed`.
 
 On reset during a run, the start marker becomes `interrupted`, with zero recovered RAM samples.
 The same sequence is never re-executed automatically. An interrupted experiment is **not** a completed trace.
